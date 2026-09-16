@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Node;
 use App\Models\Subscription;
+use App\Models\SubscriptionRequest;
 use App\Services\ProxyUriBuilder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -87,6 +88,8 @@ class SubscriptionController extends Controller
         $subscription = Subscription::where('token', $token)->first();
         abort_if($subscription === null || !$subscription->enabled, 404);
 
+        $this->logRequest($request, $subscription);
+
         $uris = Node::enabled()
             ->orderBy('sort_order')
             ->orderBy('id')
@@ -104,6 +107,22 @@ class SubscriptionController extends Controller
             'Content-Type' => 'text/plain; charset=utf-8',
             'Cache-Control' => 'no-store',
             'Access-Control-Allow-Origin' => '*',
+        ]);
+    }
+
+    /**
+     * 记录订阅拉取请求（总览页「最近订阅请求」数据源）
+     *
+     * 真实客户端 IP 取值优先级：CF-Connecting-IP（CF CDN 强制写入、覆盖客户端伪造值）
+     * → request()->ip()（需配合 TrustProxies 解析 X-Forwarded-For）。
+     */
+    private function logRequest(Request $request, Subscription $subscription): void
+    {
+        SubscriptionRequest::create([
+            'subscription_id' => $subscription->id,
+            'ip' => (string) ($request->header('CF-Connecting-IP') ?: $request->ip()),
+            'user_agent' => (string) $request->userAgent(),
+            'requested_at' => now(),
         ]);
     }
 }

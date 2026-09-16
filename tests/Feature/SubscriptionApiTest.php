@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Node;
 use App\Models\Subscription;
+use App\Models\SubscriptionRequest;
 use App\Services\ProxyUriBuilder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -103,5 +104,47 @@ class SubscriptionApiTest extends TestCase
         $content = $this->get('/sub/tok?raw=1')->assertOk()->getContent();
 
         $this->assertStringStartsWith('vless://uuid-on@1.2.3.4:443?', $content);
+    }
+
+    public function test_订阅端点记录请求日志_含CF真实IP(): void
+    {
+        $sub = $this->createSub();
+
+        // 模拟 CF CDN 转发：CF-Connecting-IP 携带真实客户端 IP
+        $this->get('/sub/tok', [
+            'CF-Connecting-IP' => '203.0.113.9',
+            'X-Forwarded-For' => '203.0.113.9, 172.70.1.1',
+            'User-Agent' => 'v2rayN/6.0',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('subscription_requests', [
+            'subscription_id' => $sub->id,
+            'ip' => '203.0.113.9',
+            'user_agent' => 'v2rayN/6.0',
+        ]);
+        $this->assertNotNull(SubscriptionRequest::query()->first()?->requested_at);
+    }
+
+    public function test_订阅端点无CF头时回退请求IP(): void
+    {
+        $sub = $this->createSub();
+
+        $this->get('/sub/tok', ['User-Agent' => 'Shadowrocket/2.2'])->assertOk();
+
+        $this->assertDatabaseHas('subscription_requests', [
+            'subscription_id' => $sub->id,
+            'user_agent' => 'Shadowrocket/2.2',
+        ]);
+    }
+
+    public function test_无效订阅请求不记录(): void
+    {
+        $this->createSub();
+
+        $this->get('/sub/unknown')->assertNotFound();
+        $this->get('/sub/tok')->assertOk();
+        $this->get('/sub/tok-off')->assertNotFound();
+
+        $this->assertDatabaseCount('subscription_requests', 1); // 仅有效请求入库
     }
 }
