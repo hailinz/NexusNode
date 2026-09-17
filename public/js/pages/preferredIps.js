@@ -349,14 +349,21 @@ function piIsV6(ip) {
     return ip.includes(':');
 }
 
-// 单次探测：IP 一律 http://IP/cdn-cgi/trace（不带端口，走 80）；瞬间失败判无效
+// 单次探测：
+// - HTTP 页面：走 http://IP/cdn-cgi/trace（CF 明文 trace 在 80）
+// - HTTPS 页面：http 请求被 mixed content 阻断，改走 https://IP:443/cdn-cgi/trace——
+//   裸 IP 证书不匹配在 TLS 握手完成后立即 reject，reject 时刻耗时即有效延迟（与 nodes.js 同款）
+// 瞬间失败（<5ms）判无效
 async function piProbe(ip, timeout) {
     const target = ip.includes(':') && !ip.startsWith('[') ? `[${ip}]` : ip;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
     const start = performance.now();
+    const url = location.protocol === 'https:'
+        ? `https://${target}:443/cdn-cgi/trace`
+        : `http://${target}/cdn-cgi/trace`;
     try {
-        await fetch(`http://${target}/cdn-cgi/trace`, { mode: 'no-cors', signal: controller.signal, cache: 'no-store' });
+        await fetch(url, { mode: 'no-cors', signal: controller.signal, cache: 'no-store' });
         clearTimeout(timer);
         return Math.round(performance.now() - start);
     } catch (e) {
