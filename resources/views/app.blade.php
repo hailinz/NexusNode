@@ -5,8 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>NexusNode · 节点订阅管理平台</title>
-    <script src="{{ asset('vendor/qrcode.min.js') }}"></script>
-    <script src="{{ asset('vendor/tailwindcss.js') }}"></script>
+    {{-- filemtime 版本参数：文件更新后 URL 随之变化，避免 CF/浏览器缓存旧 JS --}}
+    <script src="{{ asset('vendor/qrcode.min.js') }}?v={{ filemtime(public_path('vendor/qrcode.min.js')) }}"></script>
+    <script src="{{ asset('vendor/tailwindcss.js') }}?v={{ filemtime(public_path('vendor/tailwindcss.js')) }}"></script>
     <script>
         tailwind.config = {
             theme: {
@@ -27,6 +28,6 @@
 </head>
 <body class="min-h-screen bg-slate-50 font-sans text-slate-900 antialiased">
     <div id="app"></div>
-    <script type="module" src="{{ asset('js/app.js') }}"></script>
+    <script type="module" src="{{ asset('js/app.js') }}?v={{ filemtime(public_path('js/app.js')) }}"></script>
 </body>
 </html>
