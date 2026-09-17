@@ -590,7 +590,6 @@ function ooModalHtml() {
                 </div>
                 <p id="oo-import-status" class="w-full text-xs text-slate-500"></p>
             </div>
-            {{-- 待选列表编辑器：IP 库导入 / 手动粘贴的落点，CIDR 区间在开始优选时随机展开 --}}
             <div class="border-b border-slate-100 px-6 py-3">
                 <p class="mb-1.5 text-xs font-medium text-slate-500">待选列表（支持 <code class="rounded bg-slate-100 px-1 font-mono">IP</code> / <code class="rounded bg-slate-100 px-1 font-mono">IP:端口</code> / <code class="rounded bg-slate-100 px-1 font-mono">[IPv6]:端口</code> / <code class="rounded bg-slate-100 px-1 font-mono">CIDR</code> / <code class="rounded bg-slate-100 px-1 font-mono">IP区间</code>，每行一个）</p>
                 <textarea id="oo-editor" rows="6" spellcheck="false"
