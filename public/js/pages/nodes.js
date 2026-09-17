@@ -62,25 +62,41 @@ async function loadAndRender(root) {
             <button id="bulk-delete" class="rounded-lg bg-red-600 px-4 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-red-500">批量删除</button>
         </div>
 
-        <div class="overflow-x-auto">
-            <table class="w-full min-w-[860px] text-sm">
-                <thead>
-                    <tr class="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400">
-                        <th class="w-10 px-4 py-3"><input type="checkbox" id="check-all" title="全选本页" class="h-4 w-4 rounded border-slate-300 text-indigo-600"></th>
-                        <th class="px-4 py-3 font-medium">节点</th>
-                        <th class="px-4 py-3 font-medium">协议</th>
-                        <th class="px-4 py-3 font-medium">地址</th>
-                        <th class="px-4 py-3 font-medium">端口</th>
-                        <th class="px-4 py-3 font-medium">SNI / 伪装</th>
-                        <th class="px-4 py-3 font-medium">延迟</th>
-                        <th class="px-4 py-3 font-medium">状态</th>
-                        <th class="px-4 py-3 text-right font-medium">操作</th>
-                    </tr>
-                </thead>
-                <tbody id="node-tbody" class="divide-y divide-slate-50">
-                    ${data.data.length === 0 ? emptyRow(9, '没有匹配的节点，去「批量导入」粘贴链接吧') : data.data.map(nodeRow).join('')}
-                </tbody>
-            </table>
+        <div class="js-node-list">
+            <!-- 桌面端表格（≥640px） -->
+            <div class="hidden overflow-x-auto sm:block">
+                <table class="w-full min-w-[860px] text-sm">
+                    <thead>
+                        <tr class="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400">
+                            <th class="w-10 px-4 py-3"><input type="checkbox" data-check-all title="全选本页" class="h-4 w-4 rounded border-slate-300 text-indigo-600"></th>
+                            <th class="px-4 py-3 font-medium">节点</th>
+                            <th class="px-4 py-3 font-medium">协议</th>
+                            <th class="px-4 py-3 font-medium">地址</th>
+                            <th class="px-4 py-3 font-medium">端口</th>
+                            <th class="px-4 py-3 font-medium">SNI / 伪装</th>
+                            <th class="px-4 py-3 font-medium">延迟</th>
+                            <th class="px-4 py-3 font-medium">状态</th>
+                            <th class="px-4 py-3 text-right font-medium">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="node-tbody" class="divide-y divide-slate-50">
+                        ${data.data.length === 0 ? emptyRow(9, '没有匹配的节点，去「批量导入」粘贴链接吧') : data.data.map(nodeRow).join('')}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- 移动端卡片（<640px） -->
+            <div class="sm:hidden">
+                <div class="flex items-center justify-between border-b border-slate-100 bg-slate-50/60 px-4 py-2">
+                    <label class="flex items-center gap-2 text-xs text-slate-500">
+                        <input type="checkbox" data-check-all class="h-4 w-4 rounded border-slate-300 text-indigo-600">全选本页
+                    </label>
+                    <span class="text-xs text-slate-400">${data.meta.total} 个节点</span>
+                </div>
+                ${data.data.length === 0
+                    ? '<div class="px-4 py-12 text-center text-sm text-slate-400">没有匹配的节点，去「批量导入」粘贴链接吧</div>'
+                    : `<div class="divide-y divide-slate-50">${data.data.map(nodeCard).join('')}</div>`}
+            </div>
         </div>
 
         <div class="flex flex-col gap-3 border-t border-slate-100 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
@@ -143,6 +159,48 @@ function nodeRow(n) {
     </tr>`;
 }
 
+function nodeCard(n) {
+    const tested = state.tested.get(n.id);
+    const latencyHtml = tested === undefined
+        ? '<span class="text-slate-300">—</span>'
+        : tested === null
+            ? '<span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-400">超时</span>'
+            : `<span class="rounded-full px-2 py-0.5 text-[10px] font-semibold ${latencyClass(tested) === 'text-emerald-700' ? 'bg-emerald-600 text-white' : `bg-slate-100 ${latencyClass(tested)}`}">${tested} ms</span>`;
+
+    return `
+    <div class="p-4 transition hover:bg-slate-50/70" data-node-id="${n.id}">
+        <div class="flex items-start gap-2.5">
+            <input type="checkbox" data-check value="${n.id}" class="row-check mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-indigo-600" ${state.checked.has(n.id) ? 'checked' : ''}>
+            <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-1.5">
+                    <p class="truncate text-sm font-medium text-slate-800">${esc(n.name)}</p>
+                    ${n.is_cf ? '<span class="shrink-0 rounded-full bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-600 ring-1 ring-inset ring-sky-200">CF</span>' : ''}
+                    ${n.is_generated ? '<span class="shrink-0 rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-600 ring-1 ring-inset ring-violet-200">生成</span>' : ''}
+                </div>
+                <p class="mt-0.5 truncate font-mono text-xs text-slate-600">${esc(n.address)}<span class="font-semibold">:${n.port}</span></p>
+                <p class="mt-0.5 truncate text-xs text-slate-400" title="${esc(n.sni || '')}">${esc((n.protocol || '').toUpperCase())} · ${esc(n.network || 'tcp')}${n.path ? ' · ' + esc(n.path) : ''}${n.sni ? ' · SNI ' + esc(n.sni) : ''}</p>
+            </div>
+            <button data-toggle class="shrink-0 self-center inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition ${n.enabled
+                ? 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200 hover:bg-emerald-100'
+                : 'bg-slate-100 text-slate-400 ring-1 ring-inset ring-slate-200 hover:bg-slate-200'}">
+                <span class="inline-block h-1.5 w-1.5 rounded-full ${n.enabled ? 'bg-emerald-500' : 'bg-slate-400'}"></span>
+                ${n.enabled ? '启用' : '禁用'}
+            </button>
+        </div>
+        <div class="mt-2.5 flex items-center justify-between gap-2">
+            <span class="latency-cell text-xs">${latencyHtml}</span>
+            <div class="flex items-center gap-0.5">
+                <button data-move="up" title="上移（影响订阅顺序）" class="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">↑</button>
+                <button data-move="down" title="下移（影响订阅顺序）" class="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">↓</button>
+                <button data-ping-single title="测速（当前网络环境）" class="rounded-md p-1.5 text-slate-400 transition hover:bg-emerald-50 hover:text-emerald-600">⚡</button>
+                <button data-copy="${esc(n.uri)}" title="复制链接" class="rounded-md p-1.5 text-slate-400 transition hover:bg-indigo-50 hover:text-indigo-600">⧉</button>
+                <button data-edit title="编辑" class="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">✎</button>
+                <button data-delete title="删除" class="rounded-md p-1.5 text-slate-400 transition hover:bg-red-50 hover:text-red-600">✕</button>
+            </div>
+        </div>
+    </div>`;
+}
+
 function bindEvents(root, data) {
     // 筛选 tabs
     root.querySelectorAll('[data-filter]').forEach(btn => btn.addEventListener('click', () => {
@@ -159,24 +217,25 @@ function bindEvents(root, data) {
         loadAndRender(root);
     });
 
-    // 勾选与批量条
+    // 勾选与批量条（表格 + 卡片两种视图通用；同一节点两视图各有一个复选框，计数按 ID 去重）
     const syncBulk = () => {
         const boxes = [...root.querySelectorAll('.row-check')];
-        const checked = boxes.filter(b => b.checked);
-        checked.forEach(b => state.checked.add(+b.value));
-        boxes.forEach(b => { if (!b.checked) state.checked.delete(+b.value); });
-        root.querySelector('#bulk-count').textContent = checked.length;
-        root.querySelector('#bulk-bar').classList.toggle('hidden', checked.length === 0);
-        root.querySelector('#bulk-bar').classList.toggle('flex', checked.length > 0);
-        const all = root.querySelector('#check-all');
-        all.checked = boxes.length > 0 && checked.length === boxes.length;
-        all.indeterminate = checked.length > 0 && checked.length < boxes.length;
+        const checkedIds = new Set(boxes.filter(b => b.checked).map(b => +b.value));
+        boxes.forEach(b => { b.checked ? state.checked.add(+b.value) : state.checked.delete(+b.value); });
+        root.querySelector('#bulk-count').textContent = checkedIds.size;
+        root.querySelector('#bulk-bar').classList.toggle('hidden', checkedIds.size === 0);
+        root.querySelector('#bulk-bar').classList.toggle('flex', checkedIds.size > 0);
+        const ids = new Set(boxes.map(b => +b.value));
+        root.querySelectorAll('[data-check-all]').forEach(el => {
+            el.checked = ids.size > 0 && checkedIds.size === ids.size;
+            el.indeterminate = checkedIds.size > 0 && checkedIds.size < ids.size;
+        });
     };
     root.querySelectorAll('.row-check').forEach(b => b.addEventListener('change', syncBulk));
-    root.querySelector('#check-all').addEventListener('change', (e) => {
+    root.querySelectorAll('[data-check-all]').forEach(el => el.addEventListener('change', (e) => {
         root.querySelectorAll('.row-check').forEach(b => { b.checked = e.target.checked; });
         syncBulk();
-    });
+    }));
     syncBulk();
 
     // 批量删除
@@ -217,10 +276,10 @@ function bindEvents(root, data) {
         loadAndRender(root);
     });
 
-    // 行操作（事件委托）
-    const tbody = root.querySelector('#node-tbody');
-    tbody.addEventListener('click', async (e) => {
-        const tr = e.target.closest('tr[data-node-id]');
+    // 行操作（事件委托：表格行与移动端卡片共用同一组 data 属性）
+    const nodeList = root.querySelector('.js-node-list');
+    nodeList.addEventListener('click', async (e) => {
+        const tr = e.target.closest('[data-node-id]');
         if (!tr) return;
         const id = +tr.dataset.nodeId;
         const node = data.data.find(n => n.id === id);
@@ -254,8 +313,8 @@ function bindEvents(root, data) {
     root.querySelector('#ping-btn').addEventListener('click', async () => {
         const anyChecked = root.querySelector('.row-check:checked') !== null;
         const trs = anyChecked
-            ? [...root.querySelectorAll('.row-check:checked')].map(b => b.closest('tr'))
-            : [...root.querySelectorAll('tr[data-node-id]')];
+            ? [...root.querySelectorAll('.row-check:checked')].map(b => b.closest('[data-node-id]'))
+            : [...root.querySelectorAll('[data-node-id]')];
 
         const btn = root.querySelector('#ping-btn');
         const stats = root.querySelector('#ping-stats');
@@ -297,7 +356,11 @@ function renderLatencyCell(tr, ms) {
     cell.innerHTML = `<span class="rounded-full px-2 py-0.5 text-[10px] font-semibold ${cls}">${ms} ms</span>`;
 }
 
-// 浏览器直连测速：IP 走 http 不带端口（CF 明文 trace 在 80），域名按安全层走 https/http
+// 浏览器直连测速：
+// - HTTP 页面：IP 走 http（CF 明文 trace 在 80），域名按节点安全层走 https/http
+// - HTTPS 页面：http 请求被浏览器 mixed content 阻断；IP 改走 https 直连——裸 IP 证书不匹配
+//   会在 TLS 握手完成后立即 reject，reject 时刻的耗时即到该 IP 的真实往返延迟（同列表测速机制），
+//   绝对值含一次 TLS 握手略偏大，但横向比较各 IP 快慢一致
 function pingTarget(node) {
     const isIp = node.address.includes(':')
         || /^\d{1,3}(\.\d{1,3}){3}$/.test(node.address);
@@ -305,6 +368,10 @@ function pingTarget(node) {
     const isCf = node.is_cf;
     const path = isCf ? '/cdn-cgi/trace' : '/';
     if (isIp) {
+        if (location.protocol === 'https:') {
+            // CF IP 用 443 + trace；非 CF IP 用节点自身端口
+            return { url: `https://${host}${isCf ? path : `:${node.port}/`}`, timeout: 3000 };
+        }
         // http 页面下 IP 不用 https（SNI 为空不可靠），直接 http 不带端口
         return { url: `http://${host}${path}`, timeout: 3000 };
     }
@@ -325,7 +392,7 @@ async function pingOneMeasure(node) {
     } catch (e) {
         clearTimeout(timer);
         const elapsed = Math.round(performance.now() - start);
-        return elapsed < timeout ? elapsed : null;
+        return elapsed < timeout ? elapsed : null; // 提前 reject（含证书错误）= 连接已建立，耗时有效
     }
 }
 
