@@ -1,6 +1,6 @@
 // ==================== CF 优选 IP 页 ====================
 import { ipsApi, sourcesApi } from '../api.js';
-import { esc, toast, confirmBox, readFileText, latencyClass } from '../utils.js';
+import { esc, toast, confirmBox, readFileText, latencyClass, formatTime } from '../utils.js';
 import { openOnlineOptimize } from './onlineOptimize.js';
 
 let rootEl = null;
@@ -133,7 +133,7 @@ function renderSources(sources) {
                 </div>
                 <p class="truncate font-mono text-xs text-slate-400">${esc(s.url)}</p>
             </div>
-            <span class="font-mono text-xs text-slate-500">${s.last_synced_at ? esc(s.last_synced_at.slice(5, 16)) : '—'}</span>
+            <span class="font-mono text-xs text-slate-500">${s.last_synced_at ? esc(formatTime(s.last_synced_at, false)) : '—'}</span>
             <span class="text-xs font-medium text-slate-700">${s.last_synced_at ? s.last_count + ' 个' : '—'}</span>
             <button data-src-toggle class="rounded-full px-2.5 py-1 text-xs font-medium ${s.enabled ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'}">${s.enabled ? '启用' : '停用'}</button>
             <button data-src-sync class="rounded-lg bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-600 hover:bg-indigo-100">同步</button>
@@ -197,7 +197,7 @@ function renderTable() {
             <td class="pi-latency px-4 py-3 text-xs">${ip.latency_ms !== null ? `<span class="${latencyClass(ip.latency_ms)}">${ip.latency_ms} ms</span>` : '<span class="text-slate-300">—</span>'}</td>
             <td class="px-4 py-3 text-xs text-slate-600">${ip.loss_rate !== null ? ip.loss_rate.toFixed(2) + '%' : '—'}</td>
             <td class="px-4 py-3 text-xs text-slate-600">${ip.download_speed !== null ? ip.download_speed.toFixed(2) + ' MB/s' : '—'}</td>
-            <td class="px-4 py-3 font-mono text-xs text-slate-500">${esc(ip.created_at.slice(5, 11))}</td>
+            <td class="px-4 py-3 font-mono text-xs text-slate-500">${esc(formatTime(ip.created_at, false))}</td>
             <td class="px-4 py-3">
                 <button data-toggle class="rounded-full px-2.5 py-1 text-xs font-medium ${ip.enabled ? 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200' : 'bg-slate-100 text-slate-400 ring-1 ring-inset ring-slate-200'}">${ip.enabled ? '启用' : '停用'}</button>
             </td>

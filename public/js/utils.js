@@ -5,6 +5,16 @@ export function esc(v) {
     return String(v ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// 按浏览器时区格式化后端 ISO 时间（MM-DD HH:mm[:ss]）；解析失败原样返回
+export function formatTime(iso, withSeconds = true) {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return String(iso ?? '');
+    const pad = n => String(n).padStart(2, '0');
+    const date = `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const time = `${pad(d.getHours())}:${pad(d.getMinutes())}${withSeconds ? ':' + pad(d.getSeconds()) : ''}`;
+    return `${date} ${time}`;
+}
+
 // 轻提示（右下角浮层）
 export function toast(message, type = 'success') {
     let container = document.getElementById('toast-container');

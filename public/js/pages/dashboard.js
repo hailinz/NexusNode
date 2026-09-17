@@ -1,6 +1,6 @@
 // ==================== 总览页 ====================
 import { dashboardApi } from '../api.js';
-import { esc } from '../utils.js';
+import { esc, formatTime } from '../utils.js';
 import { showSubQrModal } from '../ui.js';
 
 export async function renderDashboard(root) {
@@ -60,7 +60,7 @@ export async function renderDashboard(root) {
                         ${data.recent_requests.map(r => `
                             <tr class="transition hover:bg-slate-50/70">
                                 <td class="px-5 py-2.5 text-xs font-medium text-slate-800">${esc(r.subscription)}</td>
-                                <td class="px-4 py-2.5 font-mono text-xs text-slate-500">${esc(r.requested_at.slice(5, 19))}</td>
+                                <td class="px-4 py-2.5 font-mono text-xs text-slate-500">${esc(formatTime(r.requested_at))}</td>
                                 <td class="px-4 py-2.5 font-mono text-xs text-slate-600">${esc(r.ip)}</td>
                                 <td class="max-w-[240px] px-4 py-2.5"><p class="truncate font-mono text-xs text-slate-500" title="${esc(r.user_agent)}">${esc(r.user_agent || '—')}</p></td>
                             </tr>`).join('')}
