@@ -6,7 +6,7 @@
 //    机房国家由 colo 反查 locations 映射表；只有延迟 ≤ 超时值的 IP 进入结果列表（同 BestCF 的"超时即剔除"）
 // ③ 达标入库：写回 IP 池（备注回填「运营商 · 国家 · 数据中心」，仅当原备注为空）
 
-import { ipsApi } from '../api.js';
+import { api, ipsApi } from '../api.js';
 import { esc } from '../utils.js';
 
 const OO_BEST_HOSTS = ['bestcf.cmliussss.hidns.vip', 'ns.psb.kdns.fr'];
@@ -257,12 +257,10 @@ async function ooLoadLocations() {
     };
 
     // ② 本站服务端代理：同源请求必然可达，浏览器连不上探测域名时仍能拿到映射
+    //    （走 api.get 带 Bearer 令牌——裸 fetch 不带头会被 ApiTokenAuth 拦成 401）
     try {
-        const res = await fetch('/api/v1/preferred-ips/online-locations');
-        if (res.ok) {
-            const data = (await res.json()).locations;
-            if (Array.isArray(data) && ooBuildLocations(data)) { persist(data); return true; }
-        }
+        const data = await api.get('/preferred-ips/online-locations');
+        if (Array.isArray(data.locations) && ooBuildLocations(data.locations)) { persist(data.locations); return true; }
     } catch (e) { /* 服务器外网受限 → 浏览器直连兜底 */ }
 
     // ③ 浏览器直连兜底：多端点竞速
@@ -592,6 +590,17 @@ function ooModalHtml() {
                 </div>
                 <p id="oo-import-status" class="w-full text-xs text-slate-500"></p>
             </div>
+            {{-- 待选列表编辑器：IP 库导入 / 手动粘贴的落点，CIDR 区间在开始优选时随机展开 --}}
+            <div class="border-b border-slate-100 px-6 py-3">
+                <p class="mb-1.5 text-xs font-medium text-slate-500">待选列表（支持 <code class="rounded bg-slate-100 px-1 font-mono">IP</code> / <code class="rounded bg-slate-100 px-1 font-mono">IP:端口</code> / <code class="rounded bg-slate-100 px-1 font-mono">[IPv6]:端口</code> / <code class="rounded bg-slate-100 px-1 font-mono">CIDR</code> / <code class="rounded bg-slate-100 px-1 font-mono">IP区间</code>，每行一个）</p>
+                <textarea id="oo-editor" rows="6" spellcheck="false"
+                          placeholder="选择 IP 库后点击「IP 库导入」自动填充，也可手动粘贴。示例：&#10;104.16.1.1&#10;104.16.2.2:8443&#10;[2606:4700::]:443&#10;103.22.200.0/22&#10;162.159.152.0-162.159.153.255"
+                          class="w-full rounded-lg border-slate-200 font-mono text-xs leading-5 shadow-sm focus:border-indigo-400 focus:ring-indigo-100"></textarea>
+                <div class="mt-1 flex items-center justify-between">
+                    <span id="oo-line-count" class="text-xs text-slate-400">0 行</span>
+                    <span class="text-xs text-slate-400">仅显示延迟 ≤ 超时阈值的可用 IP</span>
+                </div>
+            </div>
             <div id="oo-progress-wrap" class="hidden px-6 pt-4">
                 <div class="flex items-center justify-between text-xs text-slate-500">
                     <span>进度：<b id="oo-progress-text" class="text-slate-800">0 / 0</b></span>
@@ -602,6 +611,10 @@ function ooModalHtml() {
                 </div>
             </div>
             <div class="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+                <div class="mb-2 flex items-center justify-between">
+                    <h3 class="text-sm font-semibold text-slate-900">优选结果</h3>
+                    <span id="oo-result-count" class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500">0 个可用</span>
+                </div>
                 <table class="w-full text-sm">
                     <thead class="sticky top-0 bg-white">
                         <tr class="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400">
