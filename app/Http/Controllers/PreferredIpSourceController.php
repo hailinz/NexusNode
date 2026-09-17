@@ -27,7 +27,7 @@ class PreferredIpSourceController extends Controller
                 'name' => $s->name,
                 'url' => $s->url,
                 'enabled' => $s->enabled,
-                'last_synced_at' => $s->last_synced_at?->format('Y-m-d H:i:s'),
+                'last_synced_at' => $s->last_synced_at?->toIso8601String(),
                 'last_count' => $s->last_synced_at ? $s->last_count : null,
                 'last_error' => $s->last_error,
             ]),

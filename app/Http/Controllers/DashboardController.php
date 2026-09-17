@@ -25,7 +25,7 @@ class DashboardController extends Controller
                 'subscription' => $r->subscription?->name ?? '（已删除）',
                 'ip' => $r->ip,
                 'user_agent' => $r->user_agent,
-                'requested_at' => $r->requested_at->format('Y-m-d H:i:s'),
+                'requested_at' => $r->requested_at->toIso8601String(),
             ]);
 
         $recentSubs = Subscription::query()->latest('id')->limit(3)->get()

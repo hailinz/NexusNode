@@ -51,7 +51,7 @@ class PreferredIpController extends Controller
             'loss_rate' => $i->loss_rate,
             'download_speed' => $i->download_speed,
             'enabled' => $i->enabled,
-            'created_at' => $i->created_at->format('Y-m-d\TH:i:s'),
+            'created_at' => $i->created_at->toIso8601String(),
         ];
     }
 
