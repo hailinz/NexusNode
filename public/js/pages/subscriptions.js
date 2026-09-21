@@ -200,6 +200,7 @@ function openNodesManager(sub) {
         q: '',
         page: 1,
         perPage: 20,
+        initialized: false,      // 是否已从服务器拉过权威白名单(只有首次 / 切筛选 / 切搜索需要重置 selected)
     };
 
     modal.querySelector('#mn-sub-name').textContent = sub.name;
@@ -277,19 +278,6 @@ function openNodesManager(sub) {
         ).join('');
     };
 
-    const syncSelectedWithAvailable = () => {
-        // 加载可用节点时,把当前页已有的选中状态同步进 selected 数组(用于新建关联)
-        const known = new Map(state.selected.map(n => [n.id, n]));
-        for (const n of state.available) {
-            if (known.has(n.id)) {
-                const cur = known.get(n.id);
-                cur.name = n.name; cur.protocol = n.protocol; cur.address = n.address;
-                cur.port = n.port; cur.enabled = n.enabled;
-            }
-        }
-        // 当前页的勾选同步:checkbox 状态变化时直接调用 toggleSelected
-    };
-
     const toggleSelected = (id, on) => {
         const idx = state.selected.findIndex(n => n.id === id);
         if (on && idx === -1) {
@@ -301,6 +289,9 @@ function openNodesManager(sub) {
         renderSelected();
     };
 
+// reloadAvailable — 拉白名单节点数据。
+// 只有首次打开 modal 时,会用服务器权威白名单覆盖本地 state.selected(初始化);
+// 后续翻页 / 切筛选 / 搜索都只刷新左栏,不动右栏已选。
     const reloadAvailable = async () => {
         const data = await subsApi.getNodes(state.subId, {
             filter: state.filter, q: state.q, page: state.page, per_page: state.perPage,
@@ -308,14 +299,15 @@ function openNodesManager(sub) {
         state.available = data.nodes.data;
         state.meta = data.nodes.meta;
 
-        // 用服务器权威 selected 覆盖本地(初次加载 / 切换筛选后从服务器拉真实白名单)
-        state.selected = data.selected.map(s => ({
-            id: s.id, name: s.name, protocol: s.protocol,
-            address: s.address, port: s.port, enabled: s.enabled,
-            sort_order: s.sort_order,
-        }));
+        if (!state.initialized) {
+            state.selected = data.selected.map(s => ({
+                id: s.id, name: s.name, protocol: s.protocol,
+                address: s.address, port: s.port, enabled: s.enabled,
+                sort_order: s.sort_order,
+            }));
+            state.initialized = true;
+        }
 
-        syncSelectedWithAvailable();
         renderFilters();
         renderAvailable();
         renderSelected();
