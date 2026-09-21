@@ -26,7 +26,7 @@ export function showSubQrModal(name, url) {
             if (e.target === modal || e.target.closest('[data-close]')) closeModal();
         });
         modal.querySelector('[data-copy-btn]').addEventListener('click', async function () {
-            const { copyText } = await import('../utils.js');
+            const { copyText } = await import('./utils.js');
             await copyText(document.getElementById('sub-qr-url').textContent);
             this.textContent = '已复制 ✓';
             setTimeout(() => { this.textContent = '复制地址'; }, 1200);
