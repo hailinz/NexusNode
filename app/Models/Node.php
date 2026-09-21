@@ -6,6 +6,7 @@ use App\Services\ProxyUriBuilder;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Node extends Model
@@ -80,6 +81,16 @@ class Node extends Model
     public function children(): HasMany
     {
         return $this->hasMany(Node::class, 'parent_node_id');
+    }
+
+    /**
+     * 包含该节点的订阅白名单（用于反向校验、统计）
+     */
+    public function subscriptions(): BelongsToMany
+    {
+        return $this->belongsToMany(Subscription::class, 'subscription_node')
+            ->withPivot('sort_order')
+            ->withTimestamps();
     }
 
     /**
