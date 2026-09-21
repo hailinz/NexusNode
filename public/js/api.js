@@ -104,6 +104,8 @@ export const subsApi = {
     create: (name, description) => api.post('/subscriptions', { name, description }),
     toggle: (id) => api.patch(`/subscriptions/${id}/toggle`),
     regenerate: (id) => api.patch(`/subscriptions/${id}/regenerate`),
+    getNodes: (id, params) => api.get(`/subscriptions/${id}/nodes` + toQuery(params)),
+    setNodes: (id, nodeIds) => api.put(`/subscriptions/${id}/nodes`, { node_ids: nodeIds }),
     remove: (id) => api.del(`/subscriptions/${id}`),
 };
 
