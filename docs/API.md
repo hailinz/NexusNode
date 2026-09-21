@@ -222,15 +222,54 @@ IP 列表测速回写（仅更新已存在 IP 的延迟/丢包率，不改启用
 
 ```json
 {
-  "subscriptions": [{ "id": 1, "name": "我的订阅", "description": null, "enabled": true, "url": "http://host/sub/{token}" }],
+  "subscriptions": [{
+    "id": 1, "name": "我的订阅", "description": null,
+    "enabled": true, "node_count": 5,
+    "url": "http://host/sub/{token}"
+  }],
   "enabled_node_count": 12
 }
 ```
 
+`node_count`：该订阅配置的节点白名单数量。`0` 表示沿用「全部启用节点」行为；`> 0` 表示订阅端点只输出这些节点（按白名单 sort_order 排序）。
+
 ### POST /api/v1/subscriptions — `{ "name": "...", "description": "..." }` → 201
 ### PATCH /api/v1/subscriptions/{id}/toggle — 启停
 ### PATCH /api/v1/subscriptions/{id}/regenerate — 重置令牌（旧地址失效），响应含新 `url`
-### DELETE /api/v1/subscriptions/{id} — 删除
+### DELETE /api/v1/subscriptions/{id} — 删除（级联清理节点白名单关联）
+
+### GET /api/v1/subscriptions/{id}/nodes
+
+查询订阅的节点白名单配置。参数同 `/nodes`：`filter`（`all` / `cf` / `generated` / `disabled`）、`q`（名称 / 地址 / SNI 关键字）、`page`、`per_page`。
+
+```json
+{
+  "nodes": {
+    "data": [{ "id": 1, "name": "A", "enabled": true, ... }],
+    "meta": { "current_page": 1, "last_page": 1, "per_page": 20, "total": 12 }
+  },
+  "selected": [
+    { "id": 3, "name": "B", "protocol": "vless", "address": "...", "port": 443, "enabled": true, "sort_order": 0 },
+    { "id": 5, "name": "C", "protocol": "vless", "address": "...", "port": 443, "enabled": false, "sort_order": 1 }
+  ]
+}
+```
+
+`selected` 跨分页返回完整已选节点（含已禁用的，前端用徽章标注），用于右栏渲染与排序调整。
+
+### PUT /api/v1/subscriptions/{id}/nodes
+
+全量替换白名单。Body：
+
+```json
+{ "node_ids": [3, 5, 1] }
+```
+
+- **空数组 `[]`**：清空白名单，订阅恢复「全部启用节点」行为
+- **数组顺序**：写入 `subscription_node.sort_order`，决定订阅内节点输出顺序
+- **校验**：所有 id 必须存在（否则 422 + `errors.node_ids`）；id 不允许重复
+
+响应：`{ "message", "node_count": 3 }`。
 
 ---
 
@@ -238,7 +277,14 @@ IP 列表测速回写（仅更新已存在 IP 的延迟/丢包率，不改启用
 
 ### GET /sub/{token}
 
-返回 base64(全部启用节点链接)，`Content-Type: text/plain; charset=utf-8`。附加 `?raw=1` 输出明文列表。停用的订阅返回 404。
+返回 base64(节点链接)，`Content-Type: text/plain; charset=utf-8`。附加 `?raw=1` 输出明文列表。停用的订阅返回 404。
+
+**输出策略**：
+
+- 若订阅配置了白名单（`subscription_node` 关联数 > 0）→ 只输出白名单 ∩ `enabled=true` 的节点，按 `subscription_node.sort_order` 排序
+- 否则 → 输出所有启用节点，按 `nodes.sort_order` 排序（向后兼容老订阅）
+
+白名单内全部节点被禁用时，端点输出空内容（base64 空串），属预期行为。
 
 ---
 
