@@ -69,6 +69,8 @@ Route::prefix('v1')->group(function () {
         Route::post('subscriptions', [SubscriptionController::class, 'store']);
         Route::patch('subscriptions/{subscription}/toggle', [SubscriptionController::class, 'toggle']);
         Route::patch('subscriptions/{subscription}/regenerate', [SubscriptionController::class, 'regenerate']);
+        Route::get('subscriptions/{subscription}/nodes', [SubscriptionController::class, 'getNodes']);
+        Route::put('subscriptions/{subscription}/nodes', [SubscriptionController::class, 'updateNodes']);
         Route::delete('subscriptions/{subscription}', [SubscriptionController::class, 'destroy']);
     });
 });
