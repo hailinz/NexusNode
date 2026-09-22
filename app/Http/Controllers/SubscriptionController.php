@@ -6,10 +6,11 @@ use App\Models\Node;
 use App\Models\Subscription;
 use App\Models\SubscriptionRequest;
 use App\Services\ProxyUriBuilder;
+use App\Services\SubscriptionFormat;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * 订阅管理 API（/api/v1/subscriptions）+ 订阅端点（/sub/{token}，位于 web.php，供代理客户端拉取）
@@ -18,8 +19,9 @@ class SubscriptionController extends Controller
 {
     /**
      * 订阅列表：包含每个订阅的节点白名单数量（node_count，0 表示沿用全部启用节点）
+     * + subconverter_configured：是否配置了 SubConverter（决定是否支持 clash / singbox 等外部格式）
      */
-    public function index(): JsonResponse
+    public function index(SubscriptionFormat $format): JsonResponse
     {
         $subs = Subscription::query()->withCount('nodes')->orderBy('id')->get();
 
@@ -33,6 +35,7 @@ class SubscriptionController extends Controller
                 'url' => url('sub/'.$s->token),
             ]),
             'enabled_node_count' => Node::enabled()->count(),
+            'subconverter_configured' => $format->isConfigured(),
         ]);
     }
 
@@ -165,19 +168,60 @@ class SubscriptionController extends Controller
     }
 
     /**
-     * 订阅端点：/sub/{token}（web.php，无需认证，代理客户端标准 base64 格式）
+     * 订阅端点：/sub/{token}（web.php，无需认证，供代理客户端拉取）
      *
-     * 输出策略：
-     *  - 若订阅配置了节点白名单（关联数 > 0）→ 只输出白名单 ∩ enabled 节点，按 subscription_node.sort_order 排序
-     *  - 否则（老订阅、新订阅、清空白名单后）→ 沿用旧行为：输出所有 enabled 节点，按 nodes.sort_order 排序
+     * 输出策略（按 target 决定）：
+     *  - mixed（默认 / ?b64=1 / 防递归 / 未知 UA） → 本地生成 base64(vless/vmess/trojan/ss 链接列表)
+     *    节点来源：白名单 ∩ enabled（按 sort_order）/ 全部 enabled（无白名单时）
+     *    ?raw=1 输出明文
+     *  - clash / clashr / singbox / surge / quanx / loon / v2ray → 调 SubConverter 转换
+     *    SubConverter 会回调本服务的 ?target=mixed 拿 base 节点列表
+     *    未配置 SubConverter → 404；上游失败 / 空响应 → 502
+     *
+     * 响应头：按 target 设对应 Content-Type；非本地路径加 Profile-Update-Interval
      */
-    public function serve(Request $request, string $token): Response
+    public function serve(Request $request, string $token, SubscriptionFormat $format): Response
     {
         $subscription = Subscription::where('token', $token)->first();
         abort_if($subscription === null || ! $subscription->enabled, 404);
 
         $this->logRequest($request, $subscription);
 
+        $target = $format->detectTarget($request);
+
+        if ($format->isLocal($target)) {
+            return $this->serveLocal($request, $subscription);
+        }
+
+        if (! $format->isConfigured()) {
+            return response()->json([
+                'message' => '当前订阅未启用 SubConverter 转换服务,无法输出 '.strtoupper($target).' 格式。请使用 base64 格式的客户端或在管理面板配置 SUB_CONVERTER_URL。',
+                'target' => $target,
+            ], 404);
+        }
+
+        $baseUrl = url('sub/'.$token.'?target=mixed');
+        $body = $format->convert($baseUrl, $target);
+        if ($body === null) {
+            return response()->json([
+                'message' => '上游 SubConverter 转换失败或返回空响应（target='.$target.'）。请稍后重试或联系管理员。',
+                'target' => $target,
+            ], 502);
+        }
+
+        return response($body, 200, [
+            'Content-Type' => $format->contentType($target),
+            'Profile-Update-Interval' => (string) config('subconverter.update_interval', 24),
+            'Cache-Control' => 'no-store',
+            'Access-Control-Allow-Origin' => '*',
+        ]);
+    }
+
+    /**
+     * 本地生成 mixed（base64）输出，与升级前完全一致（向后兼容）
+     */
+    private function serveLocal(Request $request, Subscription $subscription): Response
+    {
         $hasWhitelist = $subscription->nodes()->exists();
 
         if ($hasWhitelist) {

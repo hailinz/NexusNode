@@ -5,6 +5,7 @@ import { showSubQrModal } from '../ui.js';
 
 let rootEl = null;
 let subsCache = [];
+let subconverterConfigured = false;
 
 export async function renderSubscriptions(container) {
     rootEl = container;
@@ -12,6 +13,7 @@ export async function renderSubscriptions(container) {
 
     const data = await subsApi.list();
     subsCache = data.subscriptions;
+    subconverterConfigured = !!data.subconverter_configured;
 
     rootEl.innerHTML = `
     <div class="grid grid-cols-1 gap-6 xl:grid-cols-3">
@@ -39,7 +41,7 @@ export async function renderSubscriptions(container) {
             <ol class="mt-3 space-y-2 text-sm text-indigo-100">
                 <li class="flex gap-2"><span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/20 text-xs">1</span>创建订阅后点击地址打开二维码，或复制订阅地址</li>
                 <li class="flex gap-2"><span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/20 text-xs">2</span>在 v2rayN / V2Box / NekoBox / Shadowrocket 中「添加订阅」粘贴该地址</li>
-                <li class="flex gap-2"><span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/20 text-xs">3</span>客户端更新订阅即可拉取节点（base64 标准格式）</li>
+                <li class="flex gap-2"><span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/20 text-xs">3</span>客户端按 User-Agent 自动匹配：v2rayN → base64；Clash / sing-box / Surge / Quantumult X / Loon → 对应格式（需配置 SubConverter）</li>
             </ol>
             <p class="mt-3 border-t border-white/20 pt-3 text-xs text-indigo-200">
                 <b>默认</b>输出全部启用节点；可在订阅卡片点「管理节点」配置独立白名单。
@@ -62,6 +64,10 @@ function subCard(sub) {
         ? `<span class="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 ring-1 ring-inset ring-indigo-200">已配置 ${sub.node_count} 个节点</span>`
         : `<span class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500 ring-1 ring-inset ring-slate-200">全部启用节点</span>`;
 
+    const formatBadges = subconverterConfigured
+        ? '<span class="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200">base64 · clash · sing-box · surge · quanx · loon</span>'
+        : '<span class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500 ring-1 ring-inset ring-slate-200">base64</span>';
+
     return `
     <div class="rounded-xl border border-slate-200/80 bg-white shadow-sm" data-id="${sub.id}">
         <div class="flex flex-col gap-4 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
@@ -69,6 +75,7 @@ function subCard(sub) {
                 <div class="flex flex-wrap items-center gap-2">
                     <p class="text-sm font-semibold text-slate-900">${esc(sub.name)}</p>
                     ${badge}
+                    ${formatBadges}
                     <button data-toggle class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition ${sub.enabled
                         ? 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200 hover:bg-emerald-100'
                         : 'bg-slate-100 text-slate-400 ring-1 ring-inset ring-slate-200 hover:bg-slate-200'}">
