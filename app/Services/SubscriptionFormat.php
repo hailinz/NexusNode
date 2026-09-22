@@ -109,6 +109,10 @@ class SubscriptionFormat
     /**
      * 调用 SubConverter 把 baseUrl 转换为 target 格式。
      * 失败（网络 / 非 2xx / 空响应）返回 null，调用方降级到错误响应。
+     *
+     * 注意：cmliu 自定义版 SubConverter 上 `list=true` 会跳过 ACL4SSR 规则集注入，
+     * 导致 Clash / sing-box 输出只含裸节点无 rules。本方法默认不传 list 参数，
+     * 让上游按其默认行为生成完整配置文件。
      */
     public function convert(string $baseUrl, string $target): ?string
     {
@@ -120,7 +124,6 @@ class SubscriptionFormat
         $params = [
             'target' => $target,
             'url' => $baseUrl,
-            'list' => 'true',
             'emoji' => 'true',
             'udp' => 'true',
         ];
