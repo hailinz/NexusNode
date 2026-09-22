@@ -227,11 +227,13 @@ IP 列表测速回写（仅更新已存在 IP 的延迟/丢包率，不改启用
     "enabled": true, "node_count": 5,
     "url": "http://host/sub/{token}"
   }],
-  "enabled_node_count": 12
+  "enabled_node_count": 12,
+  "subconverter_configured": true
 }
 ```
 
-`node_count`：该订阅配置的节点白名单数量。`0` 表示沿用「全部启用节点」行为；`> 0` 表示订阅端点只输出这些节点（按白名单 sort_order 排序）。
+- `node_count`：该订阅配置的节点白名单数量。`0` 表示沿用「全部启用节点」行为；`> 0` 表示订阅端点只输出这些节点（按白名单 sort_order 排序）。
+- `subconverter_configured`：是否在 `.env` 中配置了 `SUB_CONVERTER_URL`。`true` 表示订阅端点支持 Clash / sing-box / Surge 等外部格式；`false` 仅支持 base64。
 
 ### POST /api/v1/subscriptions — `{ "name": "...", "description": "..." }` → 201
 ### PATCH /api/v1/subscriptions/{id}/toggle — 启停
@@ -277,14 +279,54 @@ IP 列表测速回写（仅更新已存在 IP 的延迟/丢包率，不改启用
 
 ### GET /sub/{token}
 
-返回 base64(节点链接)，`Content-Type: text/plain; charset=utf-8`。附加 `?raw=1` 输出明文列表。停用的订阅返回 404。
+**输出格式自适应**：根据客户端 User-Agent（或显式 `?target=` 参数）自动选择响应类型。
 
-**输出策略**：
+#### 优先级
+
+1. 防递归标识 → `mixed`
+   - `?b64=1` / `?base64=1` 查询参数
+   - `subconverter-request` 请求头（SubConverter 回调本端点时自带）
+2. `?target=<value>` 显式参数 → 仅当 value 在白名单内生效，否则降级 `mixed`
+3. User-Agent 关键字匹配（首个命中）→ `clash` / `singbox` / `surge` / `quanx` / `loon`
+4. 默认 → `mixed`
+
+#### 支持的 target
+
+| target | 说明 | Content-Type | 是否需要 SubConverter |
+|---|---|---|---|
+| `mixed` | base64(vless/vmess/trojan/ss 链接列表) | `text/plain` | 否（本地生成）|
+| `clash` / `clashr` | Clash / Clash Premium YAML | `text/yaml` | 是 |
+| `singbox` | sing-box JSON outbounds | `application/json` | 是 |
+| `surge` | Surge 配置 | `text/plain` | 是 |
+| `quanx` | Quantumult X 配置 | `text/plain` | 是 |
+| `loon` | Loon 配置 | `text/plain` | 是 |
+| `v2ray` | V2RayN base64（与 `mixed` 等价） | `text/plain` | 是 |
+
+#### 输出行为
+
+- `mixed` / `v2rayN` 等浏览器类 UA → 本地生成 base64（`?raw=1` 输出明文）。完全向后兼容。
+- Clash / sing-box / Surge / Quantumult X / Loon UA → 调 `SUB_CONVERTER_URL` 转换。响应头额外带 `Profile-Update-Interval: 24`。
+- SubConverter 未配置：返 `404` + `{ message, target }`
+- SubConverter 5xx / 连接失败 / 空响应：返 `502` + `{ message, target }`
+
+#### 节点来源（白名单逻辑）
 
 - 若订阅配置了白名单（`subscription_node` 关联数 > 0）→ 只输出白名单 ∩ `enabled=true` 的节点，按 `subscription_node.sort_order` 排序
 - 否则 → 输出所有启用节点，按 `nodes.sort_order` 排序（向后兼容老订阅）
 
 白名单内全部节点被禁用时，端点输出空内容（base64 空串），属预期行为。
+
+#### 配置 SubConverter
+
+`.env`:
+
+```
+SUB_CONVERTER_URL=https://subconverter.example.com/
+SUB_CONVERTER_TIMEOUT=10
+SUB_CONVERTER_UPDATE_INTERVAL=24
+```
+
+留空 `SUB_CONVERTER_URL` 即禁用自动格式识别，所有客户端均获 base64。
 
 ---
 

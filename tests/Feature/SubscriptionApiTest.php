@@ -6,6 +6,8 @@ use App\Models\Node;
 use App\Models\Subscription;
 use App\Models\SubscriptionRequest;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Http as HttpClient;
 use Tests\TestCase;
 
 class SubscriptionApiTest extends TestCase
@@ -360,5 +362,167 @@ class SubscriptionApiTest extends TestCase
         $nodes['a']->delete();
 
         $this->assertSame(1, $sub->fresh()->nodes()->count());
+    }
+
+    // ==================== 自适应订阅格式（SubConverter） ====================
+
+    private function enableSubConverter(string $url = 'https://subconverter.test'): void
+    {
+        config(['subconverter.url' => $url]);
+    }
+
+    private function disableSubConverter(): void
+    {
+        config(['subconverter.url' => null]);
+    }
+
+    public function test_index_根据env返回subconverter_configured字段(): void
+    {
+        $this->disableSubConverter();
+        $data = $this->getJson('/api/v1/subscriptions', $this->authHeaders())->assertOk()->json();
+        $this->assertFalse($data['subconverter_configured']);
+
+        $this->enableSubConverter();
+        $data = $this->getJson('/api/v1/subscriptions', $this->authHeaders())->assertOk()->json();
+        $this->assertTrue($data['subconverter_configured']);
+    }
+
+    public function test_未知_u_a_默认走mixed_不调外部接口(): void
+    {
+        HttpClient::preventStrayRequests();
+        $this->makeNodes();
+        $this->createSub();
+
+        $r = $this->get('/sub/tok', ['User-Agent' => 'Mozilla/5.0'])->assertOk();
+        $r->assertHeader('Content-Type', 'text/plain; charset=utf-8');
+
+        // 默认是 base64 链接列表（不应全是空）
+        $decoded = base64_decode($r->getContent(), true);
+        $this->assertNotEmpty($decoded);
+        $this->assertStringContainsString('uuid-on', $decoded);
+    }
+
+    public function test_未配置_sub_ap_i_时_clash_u_a_返404带target字段(): void
+    {
+        HttpClient::preventStrayRequests();
+        $this->disableSubConverter();
+        $this->createSub();
+
+        $this->get('/sub/tok', ['User-Agent' => 'clash-verge/2.0'])
+            ->assertStatus(404)
+            ->assertJsonPath('target', 'clash')
+            ->assertJsonPath('message', fn (string $m) => str_contains($m, '当前订阅未启用 SubConverter'));
+    }
+
+    public function test_配置_sub_ap_i后_clash_u_a_触发转换_回调带target_mixed(): void
+    {
+        HttpClient::fake([
+            'subconverter.test/sub*' => HttpClient::response('YAML-CONTENT-FROM-SUBAPI', 200, ['Content-Type' => 'text/yaml']),
+        ]);
+        $this->enableSubConverter();
+        $this->createSub();
+
+        $r = $this->get('/sub/tok', ['User-Agent' => 'clash-verge/2.0'])->assertOk();
+
+        $r->assertHeader('Content-Type', 'text/yaml; charset=utf-8')
+            ->assertHeader('Profile-Update-Interval', '24')
+            ->assertSee('YAML-CONTENT-FROM-SUBAPI', false);
+
+        // 校验 SubAPI 收到的回调 URL 含 ?target=mixed
+        HttpClient::assertSent(function ($req) {
+            parse_str(parse_url($req->url(), PHP_URL_QUERY), $q);
+
+            return str_contains($req->url(), 'subconverter.test/sub')
+                && ($q['target'] ?? null) === 'clash'
+                && str_contains($q['url'] ?? '', 'target=mixed');
+        });
+    }
+
+    public function test_显式_target_singbox_触发转换_content_type_json(): void
+    {
+        HttpClient::fake(['subconverter.test/sub*' => HttpClient::response('{}', 200, ['Content-Type' => 'application/json'])]);
+        $this->enableSubConverter();
+        $this->createSub();
+
+        $this->get('/sub/tok?target=singbox')->assertOk()->assertHeader('Content-Type', 'application/json; charset=utf-8');
+    }
+
+    public function test_显式_target_无效值降级到mixed_不调外部接口(): void
+    {
+        HttpClient::preventStrayRequests();
+        $this->createSub();
+
+        $this->get('/sub/tok?target=garbage')
+            ->assertOk()
+            ->assertHeader('Content-Type', 'text/plain; charset=utf-8');
+    }
+
+    public function test_防递归_subconverter_request_header强制走mixed(): void
+    {
+        HttpClient::preventStrayRequests();
+        $this->enableSubConverter(); // 即使配置了 SubAPI,有 header 时也不调
+        $this->createSub();
+
+        $this->get('/sub/tok', [
+            'User-Agent' => 'clash-verge/2.0',
+            'subconverter-request' => 'true',
+        ])->assertOk()->assertHeader('Content-Type', 'text/plain; charset=utf-8');
+    }
+
+    public function test_防递归_b64参数强制走mixed(): void
+    {
+        HttpClient::preventStrayRequests();
+        $this->enableSubConverter();
+        $this->createSub();
+
+        $this->get('/sub/tok?target=clash&b64=1')
+            ->assertOk()
+            ->assertHeader('Content-Type', 'text/plain; charset=utf-8');
+    }
+
+    public function test_配置_sub_ap_i但上游5xx降级502(): void
+    {
+        HttpClient::fake(['subconverter.test/sub*' => HttpClient::response('boom', 503)]);
+        $this->enableSubConverter();
+        $this->createSub();
+
+        $this->get('/sub/tok', ['User-Agent' => 'clash-verge/2.0'])
+            ->assertStatus(502)
+            ->assertJsonPath('target', 'clash');
+    }
+
+    public function test_配置_sub_ap_i但上游空响应降级502(): void
+    {
+        HttpClient::fake(['subconverter.test/sub*' => HttpClient::response('', 200)]);
+        $this->enableSubConverter();
+        $this->createSub();
+
+        $this->get('/sub/tok?target=surge')
+            ->assertStatus(502)
+            ->assertJsonPath('target', 'surge');
+    }
+
+    public function test_配置_sub_ap_i但上游连接失败降级502(): void
+    {
+        HttpClient::fake(['subconverter.test/sub*' => fn () => throw new ConnectionException('timeout')]);
+        $this->enableSubConverter();
+        $this->createSub();
+
+        $this->get('/sub/tok?target=clash')
+            ->assertStatus(502)
+            ->assertJsonPath('target', 'clash');
+    }
+
+    public function test_sing_box_u_a映射到singbox_target(): void
+    {
+        HttpClient::fake(['subconverter.test/sub*' => HttpClient::response('{}', 200, ['Content-Type' => 'application/json'])]);
+        $this->enableSubConverter();
+        $this->createSub();
+
+        $this->get('/sub/tok', ['User-Agent' => 'sing-box/1.8'])
+            ->assertOk()
+            ->assertHeader('Content-Type', 'application/json; charset=utf-8');
+
+        HttpClient::assertSent(fn ($req) => str_contains(parse_url($req->url(), PHP_URL_QUERY), 'target=singbox'));
     }
 }
