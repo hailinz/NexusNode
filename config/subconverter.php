@@ -43,4 +43,23 @@ return [
     */
 
     'update_interval' => (int) env('SUB_CONVERTER_UPDATE_INTERVAL', 24),
+
+    /*
+    |--------------------------------------------------------------------------
+    | 远程规则集 URL（SUBCONFIG，对应 edgetunnel 的同名变量）
+    |--------------------------------------------------------------------------
+    |
+    | 传给 SubConverter 的 config 参数，用于在 Clash / sing-box 输出中注入
+    | 节点分组与流量路由规则（参考 ACL4SSR 系列模板）。
+    | 留空 → 输出裸节点列表（无 rules 段），由客户端自行配置规则。
+    |
+    | 常用预设（仅作示例，请使用最新 URL）：
+    |   - ACL4SSR_Online_Full_MultiMode.ini：全分组 + 自动测速 + 故障转移 + 负载均衡
+    |   - ACL4SSR_Online_Mini.ini：精简版
+    |   - ACL4SSR_Online_AdblockPlus.ini：更多去广告
+    |   - ACL4SSR_Online_NoAuto.ini：无自动测速
+    |
+    */
+
+    'config' => env('SUB_CONVERTER_CONFIG', 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/config/ACL4SSR_Online_Full_MultiMode.ini'),
 ];

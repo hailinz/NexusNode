@@ -117,13 +117,21 @@ class SubscriptionFormat
             return null;
         }
 
-        $query = http_build_query([
+        $params = [
             'target' => $target,
             'url' => $baseUrl,
             'list' => 'true',
             'emoji' => 'true',
             'udp' => 'true',
-        ]);
+        ];
+
+        // 远程规则集 URL（SUBCONFIG）：在 Clash / sing-box 输出中注入分组与路由规则
+        $config = trim((string) config('subconverter.config'));
+        if ($config !== '') {
+            $params['config'] = $config;
+        }
+
+        $query = http_build_query($params);
 
         try {
             /** @var Response $resp */

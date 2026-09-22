@@ -525,4 +525,36 @@ class SubscriptionApiTest extends TestCase
 
         HttpClient::assertSent(fn ($req) => str_contains(parse_url($req->url(), PHP_URL_QUERY), 'target=singbox'));
     }
+
+    public function test_默认_subconfi_g_规则集_ur_l_透传到_sub_api(): void
+    {
+        HttpClient::fake(['subconverter.test/sub*' => HttpClient::response('yaml', 200)]);
+        config(['subconverter.config' => 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/config/ACL4SSR_Online_Full_MultiMode.ini']);
+        $this->enableSubConverter();
+        $this->createSub();
+
+        $this->get('/sub/tok?target=clash')->assertOk();
+
+        HttpClient::assertSent(function ($req) {
+            parse_str(parse_url($req->url(), PHP_URL_QUERY), $q);
+
+            return ($q['config'] ?? null) === 'https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/config/ACL4SSR_Online_Full_MultiMode.ini';
+        });
+    }
+
+    public function test_subconfi_g_留空时_不传_config_参数(): void
+    {
+        HttpClient::fake(['subconverter.test/sub*' => HttpClient::response('yaml', 200)]);
+        config(['subconverter.config' => '']);
+        $this->enableSubConverter();
+        $this->createSub();
+
+        $this->get('/sub/tok?target=clash')->assertOk();
+
+        HttpClient::assertSent(function ($req) {
+            parse_str(parse_url($req->url(), PHP_URL_QUERY), $q);
+
+            return ! array_key_exists('config', $q);
+        });
+    }
 }

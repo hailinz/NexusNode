@@ -324,9 +324,15 @@ IP 列表测速回写（仅更新已存在 IP 的延迟/丢包率，不改启用
 SUB_CONVERTER_URL=https://subconverter.example.com/
 SUB_CONVERTER_TIMEOUT=10
 SUB_CONVERTER_UPDATE_INTERVAL=24
+SUB_CONVERTER_CONFIG=https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/config/ACL4SSR_Online_Full_MultiMode.ini
 ```
 
-留空 `SUB_CONVERTER_URL` 即禁用自动格式识别，所有客户端均获 base64。
+- 留空 `SUB_CONVERTER_URL` 即禁用自动格式识别，所有客户端均获 base64。
+- `SUB_CONVERTER_CONFIG`（对应 edgetunnel `SUBCONFIG`）：Clash / sing-box 输出时由 SubConverter 注入的远程规则集 URL，决定节点分组（节点选择 / 全球直连 / 广告拦截 / 苹果服务 / 微软服务 …）与流量路由。留空 → 输出裸节点（无 `rules:` 段，客户端需自行配置规则）。常用预设：
+  - `ACL4SSR_Online_Full_MultiMode.ini`：全分组 + 自动测速 + 故障转移 + 负载均衡
+  - `ACL4SSR_Online_Mini.ini`：精简版
+  - `ACL4SSR_Online_AdblockPlus.ini`：更多去广告
+  - `ACL4SSR_Online_NoAuto.ini`：无自动测速
 
 ---
 
