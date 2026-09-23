@@ -28,8 +28,47 @@ class GeoIpService
         }
 
         $path = (string) config('geoip.database_path', '');
+        if ($path === '' || ! is_file($path) || ! is_readable($path)) {
+            return $this->available = false;
+        }
 
-        return $this->available = ($path !== '' && is_file($path) && is_readable($path));
+        // Reader 类未安装（vendor/ 缺扩展）即不可用
+        if (! class_exists(\MaxMind\Db\Reader::class)) {
+            return $this->available = false;
+        }
+
+        // 实际打开一次，捕获损坏的 mmdb
+        try {
+            new \MaxMind\Db\Reader($path);
+        } catch (\Throwable) {
+            return $this->available = false;
+        }
+
+        return $this->available = true;
+    }
+
+    /**
+     * 当前不可用的具体原因（供 artisan 诊断命令展示）。可用时返回 null。
+     */
+    public function unavailableReason(): ?string
+    {
+        $path = (string) config('geoip.database_path', '');
+        if ($path === '') {
+            return 'GEOIP_DATABASE_PATH 未配置';
+        }
+        if (! is_file($path) || ! is_readable($path)) {
+            return "数据库文件不存在或不可读：{$path}";
+        }
+        if (! class_exists(\MaxMind\Db\Reader::class)) {
+            return 'maxmind-db/reader 未安装 — 请在项目目录运行 composer install';
+        }
+        try {
+            new \MaxMind\Db\Reader($path);
+        } catch (\Throwable $e) {
+            return '数据库文件无效或已损坏：' . $e->getMessage();
+        }
+
+        return null;
     }
 
     /**

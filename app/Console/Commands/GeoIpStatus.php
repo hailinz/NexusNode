@@ -24,10 +24,11 @@ class GeoIpStatus extends Command
         $this->line('─────────────────');
         $this->line('路径：   '.($path ?: '(未配置)'));
 
+        // 完全未配置 = 用户主动禁用，视为信息性提示
         if ($path === '') {
             $this->warn('GEOIP_DATABASE_PATH 未配置，地理位置查询已禁用。');
             $this->newLine();
-            $this->info('获取方式：');
+            $this->info('获取方式（任选其一）：');
             $this->line('  - MaxMind GeoLite2（需注册）：https://www.maxmind.com/en/geolite2/signup');
             $this->line('  - db-ip.com（免费，免注册）：https://db-ip.com/db/download/ip-to-city');
             $this->newLine();
@@ -38,9 +39,8 @@ class GeoIpStatus extends Command
         }
 
         if (! $geoIp->isAvailable()) {
-            $this->error("文件不存在或不可读：{$path}");
-            $this->newLine();
-            $this->info('请确认路径正确且文件存在。');
+            $reason = $geoIp->unavailableReason() ?? '未知原因';
+            $this->error("不可用：{$reason}");
 
             return self::FAILURE;
         }
