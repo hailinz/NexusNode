@@ -477,6 +477,7 @@ function openRequestsModal(sub) {
                         <div class="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-xs">
                             <span class="font-mono text-slate-500" title="${esc(r.requested_at)}">${esc(formatLocalTime(r.requested_at))}</span>
                             <span class="font-mono text-slate-700">${esc(r.ip)}</span>
+                            ${r.location ? `<span class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600" title="${esc(r.location)}">📍 ${esc(r.location)}</span>` : ''}
                         </div>
                         <div class="mt-0.5 break-all text-xs text-slate-600" title="${esc(r.user_agent || '')}">${esc(r.user_agent || '—')}</div>
                     </div>`).join('')}
