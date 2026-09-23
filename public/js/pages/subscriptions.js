@@ -471,23 +471,15 @@ function openRequestsModal(sub) {
                 return;
             }
             modal.querySelector('#req-list').innerHTML = `
-            <div class="overflow-x-auto">
-                <table class="w-full table-fixed text-sm">
-                    <colgroup>
-                        <col class="w-44"><col class="w-32"><col>
-                    </colgroup>
-                    <thead class="sticky top-0 bg-slate-50 text-xs uppercase tracking-wide text-slate-400">
-                        <tr><th class="px-5 py-2 text-left font-medium">时间</th><th class="px-5 py-2 text-left font-medium">IP</th><th class="px-5 py-2 text-left font-medium">客户端 UA</th></tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        ${data.requests.map(r => `
-                            <tr class="hover:bg-slate-50/60">
-                                <td class="whitespace-nowrap px-5 py-2 font-mono text-xs text-slate-500" title="${esc(r.requested_at)}">${esc(formatLocalTime(r.requested_at))}</td>
-                                <td class="whitespace-nowrap px-5 py-2 font-mono text-xs text-slate-700">${esc(r.ip)}</td>
-                                <td class="px-5 py-2 text-xs text-slate-600"><div class="truncate" title="${esc(r.user_agent || '')}">${esc(r.user_agent || '—')}</div></td>
-                            </tr>`).join('')}
-                    </tbody>
-                </table>
+            <div class="divide-y divide-slate-100">
+                ${data.requests.map(r => `
+                    <div class="px-5 py-2.5 transition hover:bg-slate-50/60">
+                        <div class="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-xs">
+                            <span class="font-mono text-slate-500" title="${esc(r.requested_at)}">${esc(formatLocalTime(r.requested_at))}</span>
+                            <span class="font-mono text-slate-700">${esc(r.ip)}</span>
+                        </div>
+                        <div class="mt-0.5 break-all text-xs text-slate-600" title="${esc(r.user_agent || '')}">${esc(r.user_agent || '—')}</div>
+                    </div>`).join('')}
             </div>`;
         })
         .catch((err) => {
