@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class SubscriptionRequest extends Model
 {
-    protected $fillable = ['subscription_id', 'ip', 'user_agent', 'requested_at'];
+    protected $fillable = ['subscription_id', 'ip', 'user_agent', 'location', 'requested_at'];
 
     protected $casts = [
         'requested_at' => 'datetime',

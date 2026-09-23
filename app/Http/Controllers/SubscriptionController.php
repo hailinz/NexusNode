@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Node;
 use App\Models\Subscription;
 use App\Models\SubscriptionRequest;
+use App\Services\GeoIpService;
 use App\Services\ProxyUriBuilder;
 use App\Services\SubscriptionFormat;
 use Illuminate\Http\JsonResponse;
@@ -148,6 +149,7 @@ class SubscriptionController extends Controller
             ->map(fn (SubscriptionRequest $r) => [
                 'id' => $r->id,
                 'ip' => $r->ip,
+                'location' => $r->location,
                 'user_agent' => $r->user_agent,
                 'requested_at' => $r->requested_at->toIso8601String(),
             ])
@@ -222,12 +224,12 @@ class SubscriptionController extends Controller
      *
      * 响应头：按 target 设对应 Content-Type；非本地路径加 Profile-Update-Interval
      */
-    public function serve(Request $request, string $token, SubscriptionFormat $format): Response
+    public function serve(Request $request, string $token, SubscriptionFormat $format, GeoIpService $geoIp): Response
     {
         $subscription = Subscription::where('token', $token)->first();
         abort_if($subscription === null || ! $subscription->enabled, 404);
 
-        $this->logRequest($request, $subscription);
+        $this->logRequest($request, $subscription, $geoIp);
 
         $target = $format->detectTarget($request);
 
@@ -295,13 +297,18 @@ class SubscriptionController extends Controller
      *
      * 真实客户端 IP 取值优先级：CF-Connecting-IP（CF CDN 强制写入、覆盖客户端伪造值）
      * → request()->ip()（需配合 TrustProxies 解析 X-Forwarded-For）。
+     *
+     * GeoIP 查询：写入时同步查本地 mmdb 库，结果存 location 列（库未配置 / 失败 / 私有 IP 一律 null）。
      */
-    private function logRequest(Request $request, Subscription $subscription): void
+    private function logRequest(Request $request, Subscription $subscription, GeoIpService $geoIp): void
     {
+        $ip = (string) ($request->header('CF-Connecting-IP') ?: $request->ip());
+
         SubscriptionRequest::create([
             'subscription_id' => $subscription->id,
-            'ip' => (string) ($request->header('CF-Connecting-IP') ?: $request->ip()),
+            'ip' => $ip,
             'user_agent' => (string) $request->userAgent(),
+            'location' => $geoIp->lookup($ip),
             'requested_at' => now(),
         ]);
     }
