@@ -6,8 +6,9 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>NexusNode · 节点订阅管理平台</title>
     {{-- filemtime 版本参数：文件更新后 URL 随之变化，避免 CF/浏览器缓存旧 JS --}}
-    <script src="{{ asset('vendor/qrcode.min.js') }}?v={{ filemtime(public_path('vendor/qrcode.min.js')) }}"></script>
-    <script src="{{ asset('vendor/tailwindcss.js') }}?v={{ filemtime(public_path('vendor/tailwindcss.js')) }}"></script>
+<script src="{{ asset('vendor/qrcode.min.js') }}?v={{ filemtime(public_path('vendor/qrcode.min.js')) }}"></script>
+<script src="{{ asset('vendor/tailwindcss.js') }}?v={{ filemtime(public_path('vendor/tailwindcss.js')) }}"></script>
+<script src="{{ asset('vendor/sortable/Sortable.min.js') }}?v={{ filemtime(public_path('vendor/sortable/Sortable.min.js')) }}"></script>
     <script>
         tailwind.config = {
             theme: {

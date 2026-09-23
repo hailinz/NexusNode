@@ -95,7 +95,7 @@ async function loadAndRender(root) {
                 </div>
                 ${data.data.length === 0
                     ? '<div class="px-4 py-12 text-center text-sm text-slate-400">没有匹配的节点，去「批量导入」粘贴链接吧</div>'
-                    : `<div class="divide-y divide-slate-50">${data.data.map(nodeCard).join('')}</div>`}
+                    : `<div id="node-cardlist" class="divide-y divide-slate-50">${data.data.map(nodeCard).join('')}</div>`}
             </div>
         </div>
 
@@ -124,7 +124,8 @@ function nodeRow(n) {
 
     return `
     <tr class="pi-row-node transition hover:bg-slate-50/70" data-node-id="${n.id}">
-        <td class="px-4 py-3"><input type="checkbox" data-check value="${n.id}" class="row-check h-4 w-4 rounded border-slate-300 text-indigo-600" ${state.checked.has(n.id) ? 'checked' : ''}></td>
+        <td class="w-6 cursor-grab select-none px-2 py-3 text-center text-slate-300 transition hover:text-slate-500 active:cursor-grabbing js-drag-handle" title="拖动排序">⠿</td>
+        <td class="w-10 px-4 py-3"><input type="checkbox" data-check value="${n.id}" class="row-check h-4 w-4 rounded border-slate-300 text-indigo-600" ${state.checked.has(n.id) ? 'checked' : ''}></td>
         <td class="max-w-[220px] px-4 py-3">
             <div class="flex items-center gap-2">
                 <p class="truncate font-medium text-slate-800">${esc(n.name)}</p>
@@ -148,8 +149,6 @@ function nodeRow(n) {
         </td>
         <td class="px-4 py-3">
             <div class="flex items-center justify-end gap-0.5">
-                <button data-move="up" title="上移（影响订阅顺序）" class="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">↑</button>
-                <button data-move="down" title="下移（影响订阅顺序）" class="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">↓</button>
                 <button data-ping-single title="测速（当前网络环境）" class="rounded-md p-1.5 text-slate-400 transition hover:bg-emerald-50 hover:text-emerald-600">⚡</button>
                 <button data-copy="${esc(n.uri)}" title="复制链接" class="rounded-md p-1.5 text-slate-400 transition hover:bg-indigo-50 hover:text-indigo-600">⧉</button>
                 <button data-edit title="编辑" class="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">✎</button>
@@ -170,12 +169,13 @@ function nodeCard(n) {
     return `
     <div class="p-4 transition hover:bg-slate-50/70" data-node-id="${n.id}">
         <div class="flex items-start gap-2.5">
+            <span class="js-drag-handle mt-1 cursor-grab select-none text-slate-300 transition hover:text-slate-500 active:cursor-grabbing" title="拖动排序">⠿</span>
             <input type="checkbox" data-check value="${n.id}" class="row-check mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-indigo-600" ${state.checked.has(n.id) ? 'checked' : ''}>
             <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-1.5">
                     <p class="truncate text-sm font-medium text-slate-800">${esc(n.name)}</p>
                     ${n.is_cf ? '<span class="shrink-0 rounded-full bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-600 ring-1 ring-inset ring-sky-200">CF</span>' : ''}
-                    ${n.is_generated ? '<span class="shrink-0 rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-600 ring-1 ring-inset ring-violet-200">生成</span>' : ''}
+                    ${n.is_generated ? '<span class="shrink-0 rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-200">生成</span>' : ''}
                 </div>
                 <p class="mt-0.5 truncate font-mono text-xs text-slate-600">${esc(n.address)}<span class="font-semibold">:${n.port}</span></p>
                 <p class="mt-0.5 truncate text-xs text-slate-400" title="${esc(n.sni || '')}">${esc((n.protocol || '').toUpperCase())} · ${esc(n.network || 'tcp')}${n.path ? ' · ' + esc(n.path) : ''}${n.sni ? ' · SNI ' + esc(n.sni) : ''}</p>
@@ -190,8 +190,6 @@ function nodeCard(n) {
         <div class="mt-2.5 flex items-center justify-between gap-2">
             <span class="latency-cell text-xs">${latencyHtml}</span>
             <div class="flex items-center gap-0.5">
-                <button data-move="up" title="上移（影响订阅顺序）" class="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">↑</button>
-                <button data-move="down" title="下移（影响订阅顺序）" class="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">↓</button>
                 <button data-ping-single title="测速（当前网络环境）" class="rounded-md p-1.5 text-slate-400 transition hover:bg-emerald-50 hover:text-emerald-600">⚡</button>
                 <button data-copy="${esc(n.uri)}" title="复制链接" class="rounded-md p-1.5 text-slate-400 transition hover:bg-indigo-50 hover:text-indigo-600">⧉</button>
                 <button data-edit title="编辑" class="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">✎</button>
@@ -283,13 +281,9 @@ function bindEvents(root, data) {
         if (!tr) return;
         const id = +tr.dataset.nodeId;
         const node = data.data.find(n => n.id === id);
-        const action = e.target.closest('[data-move], [data-ping-single], [data-copy], [data-edit], [data-delete], [data-toggle]');
+        const action = e.target.closest('[data-ping-single], [data-copy], [data-edit], [data-delete], [data-toggle]');
 
-        if (action?.dataset.move) {
-            const res = await nodesApi.move(id, action.dataset.move);
-            toast(res.message);
-            await loadAndRender(root);
-        } else if (action?.hasAttribute('data-ping-single')) {
+        if (action?.hasAttribute('data-ping-single')) {
             await pingOne(tr, node);
         } else if (action?.dataset.copy !== undefined) {
             await copyText(action.dataset.copy);
@@ -339,6 +333,30 @@ function bindEvents(root, data) {
         stats.textContent = `可达 ${ok} / 超时 ${trs.length - ok}（共 ${trs.length}）`;
         btn.disabled = false;
     });
+
+    // 拖动排序（SortableJS，桌面表格与移动卡片两视图独立）
+    const enableSort = (container) => {
+        if (!container || typeof Sortable === 'undefined') return;
+        Sortable.create(container, {
+            handle: '.js-drag-handle',
+            animation: 150,
+            ghostClass: 'bg-indigo-50/60',
+            chosenClass: 'shadow-md',
+            forceFallback: true, // 统一桌面/移动端拖动体验
+            onEnd: async (evt) => {
+                const ids = [...container.querySelectorAll('[data-node-id]')].map(el => +el.dataset.nodeId);
+                try {
+                    await nodesApi.reorder(ids);
+                    toast('顺序已更新');
+                } catch (err) {
+                    toast(err.message || '排序失败', 'error');
+                    await loadAndRender(root); // 失败回滚到服务器最新状态
+                }
+            },
+        });
+    };
+    enableSort(root.querySelector('#node-tbody'));
+    enableSort(root.querySelector('#node-cardlist'));
 }
 
 function renderLatencyCell(tr, ms) {

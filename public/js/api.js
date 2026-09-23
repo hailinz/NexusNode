@@ -67,6 +67,7 @@ export const nodesApi = {
     bulkRemove: (ids) => api.del('/nodes/bulk', { ids }),
     toggle: (id) => api.patch(`/nodes/${id}/toggle`),
     move: (id, direction) => api.patch(`/nodes/${id}/move/${direction}`),
+    reorder: (nodeIds) => api.patch('/nodes/reorder', { node_ids: nodeIds }),
 };
 
 export const importApi = {
