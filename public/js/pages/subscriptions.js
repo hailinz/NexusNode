@@ -91,6 +91,9 @@ function subCard(sub) {
             </div>
             <div class="flex shrink-0 flex-wrap items-center gap-2">
                 <button data-manage class="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100">⚙ 管理节点</button>
+                <button data-requests class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50">
+                    📊 请求记录 ${sub.request_count_24h > 0 ? `<span class="rounded-full bg-slate-900 px-1.5 text-[10px] font-semibold text-white">${sub.request_count_24h}</span>` : ''}
+                </button>
                 <button data-regenerate class="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50">重置地址</button>
                 <button data-delete class="rounded-lg border border-red-200 px-3 py-2 text-xs font-medium text-red-600 transition hover:bg-red-50">删除</button>
             </div>
@@ -124,6 +127,8 @@ function bindEvents() {
             await renderSubscriptions(rootEl);
         } else if (e.target.closest('[data-manage]')) {
             openNodesManager(sub);
+        } else if (e.target.closest('[data-requests]')) {
+            openRequestsModal(sub);
         } else if (e.target.closest('[data-regenerate]')) {
             if (!confirmBox('重置后旧订阅地址立即失效，确定？')) return;
             const res = await subsApi.regenerate(id);
@@ -398,4 +403,79 @@ function openNodesManager(sub) {
     modal.classList.remove('hidden');
     modal.classList.add('flex');
     reloadAvailable();
+}
+
+// ==================== 请求记录弹窗 ====================
+function openRequestsModal(sub) {
+    let modal = document.getElementById('sub-requests-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'sub-requests-modal';
+        modal.className = 'fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm';
+        modal.innerHTML = `
+        <div class="flex h-full max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl bg-white shadow-2xl">
+            <div class="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+                <div>
+                    <h3 class="text-sm font-semibold text-slate-900">请求记录 · <span id="req-sub-name"></span></h3>
+                    <p class="mt-0.5 text-xs text-slate-400">最近 50 次拉取记录（IP / UA / 时间）</p>
+                </div>
+                <button type="button" data-close class="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">✕</button>
+            </div>
+            <div class="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-2.5 text-xs text-slate-500">
+                <span id="req-summary">加载中…</span>
+            </div>
+            <div id="req-list" class="flex-1 overflow-y-auto"></div>
+            <div class="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/60 px-5 py-3 rounded-b-2xl">
+                <button data-close class="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100">关闭</button>
+            </div>
+        </div>`;
+        document.body.appendChild(modal);
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal || e.target.closest('[data-close]')) closeModal();
+        });
+        document.addEventListener('keydown', escHandler);
+    }
+
+    const closeModal = () => {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+        document.removeEventListener('keydown', escHandler);
+    };
+    function escHandler(e) { if (e.key === 'Escape') closeModal(); }
+
+    modal.querySelector('#req-sub-name').textContent = sub.name;
+    modal.querySelector('#req-summary').textContent = '加载中…';
+    modal.querySelector('#req-list').innerHTML = '<div class="px-5 py-12 text-center text-sm text-slate-400">加载中…</div>';
+
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+
+    subsApi.getRequests(sub.id, 50)
+        .then((data) => {
+            modal.querySelector('#req-summary').textContent =
+                `最近 24h: ${data.count_24h} 次 · 共 ${data.requests.length} 条记录`;
+            if (data.requests.length === 0) {
+                modal.querySelector('#req-list').innerHTML =
+                    '<div class="px-5 py-12 text-center text-sm text-slate-400">暂无请求记录</div>';
+                return;
+            }
+            modal.querySelector('#req-list').innerHTML = `
+            <table class="w-full text-sm">
+                <thead class="sticky top-0 bg-slate-50 text-xs uppercase tracking-wide text-slate-400">
+                    <tr><th class="px-5 py-2 text-left font-medium">时间</th><th class="px-5 py-2 text-left font-medium">IP</th><th class="px-5 py-2 text-left font-medium">客户端 UA</th></tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                    ${data.requests.map(r => `
+                        <tr class="hover:bg-slate-50/60">
+                            <td class="px-5 py-2 font-mono text-xs text-slate-500">${esc(r.requested_at.replace('T', ' ').slice(0, 19))}</td>
+                            <td class="px-5 py-2 font-mono text-xs text-slate-700">${esc(r.ip)}</td>
+                            <td class="px-5 py-2 truncate text-xs text-slate-600" title="${esc(r.user_agent || '')}">${esc(r.user_agent || '—')}</td>
+                        </tr>`).join('')}
+                </tbody>
+            </table>`;
+        })
+        .catch((err) => {
+            modal.querySelector('#req-list').innerHTML =
+                `<div class="px-5 py-12 text-center text-sm text-red-500">加载失败：${esc(err.message)}</div>`;
+        });
 }

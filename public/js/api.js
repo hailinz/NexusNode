@@ -107,6 +107,7 @@ export const subsApi = {
     regenerate: (id) => api.patch(`/subscriptions/${id}/regenerate`),
     getNodes: (id, params) => api.get(`/subscriptions/${id}/nodes` + toQuery(params)),
     setNodes: (id, nodeIds) => api.put(`/subscriptions/${id}/nodes`, { node_ids: nodeIds }),
+    getRequests: (id, limit = 50) => api.get(`/subscriptions/${id}/requests` + toQuery({ limit })),
     remove: (id) => api.del(`/subscriptions/${id}`),
 };
 
