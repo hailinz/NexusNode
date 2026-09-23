@@ -557,4 +557,122 @@ class SubscriptionApiTest extends TestCase
             return ! array_key_exists('config', $q);
         });
     }
+
+    // ==================== 订阅请求日志（卡片「请求记录」按钮） ====================
+
+    public function test_index_返回_request_count_24h_字段(): void
+    {
+        $sub = $this->createSub();
+        // 2 条 24h 内 + 1 条 2 天前
+        SubscriptionRequest::create(['subscription_id' => $sub->id, 'ip' => '1.1.1.1', 'user_agent' => 'ua1', 'requested_at' => now()]);
+        SubscriptionRequest::create(['subscription_id' => $sub->id, 'ip' => '2.2.2.2', 'user_agent' => 'ua2', 'requested_at' => now()->subHours(12)]);
+        SubscriptionRequest::create(['subscription_id' => $sub->id, 'ip' => '3.3.3.3', 'user_agent' => 'ua3', 'requested_at' => now()->subDays(2)]);
+
+        $data = $this->getJson('/api/v1/subscriptions', $this->authHeaders())->assertOk()->json();
+
+        $this->assertSame(2, $data['subscriptions'][0]['request_count_24h']);
+    }
+
+    public function test_index_request_count_24h_不含其他订阅的记录(): void
+    {
+        $subA = $this->createSub('tokA');
+        $subB = $this->createSub('tokB');
+        SubscriptionRequest::create(['subscription_id' => $subA->id, 'ip' => '1.1.1.1', 'user_agent' => 'u', 'requested_at' => now()]);
+        SubscriptionRequest::create(['subscription_id' => $subB->id, 'ip' => '2.2.2.2', 'user_agent' => 'u', 'requested_at' => now()]);
+        SubscriptionRequest::create(['subscription_id' => $subB->id, 'ip' => '3.3.3.3', 'user_agent' => 'u', 'requested_at' => now()]);
+
+        $data = $this->getJson('/api/v1/subscriptions', $this->authHeaders())->assertOk()->json();
+
+        $byId = collect($data['subscriptions'])->keyBy('id');
+        $this->assertSame(1, $byId[$subA->id]['request_count_24h']);
+        $this->assertSame(2, $byId[$subB->id]['request_count_24h']);
+    }
+
+    public function test_requests_返回该订阅最近_50_条_des_c_排序(): void
+    {
+        $sub = $this->createSub();
+        // 创建 5 条不同时间
+        for ($i = 0; $i < 5; $i++) {
+            SubscriptionRequest::create([
+                'subscription_id' => $sub->id,
+                'ip' => "1.1.1.$i",
+                'user_agent' => "ua-$i",
+                'requested_at' => now()->subMinutes($i * 10),
+            ]);
+        }
+
+        $data = $this->getJson("/api/v1/subscriptions/{$sub->id}/requests", $this->authHeaders())->assertOk()->json();
+
+        $this->assertSame(5, count($data['requests']));
+        // 最新在前（subMinutes(0) 在前）
+        $this->assertSame('ua-0', $data['requests'][0]['user_agent']);
+        $this->assertSame('ua-4', $data['requests'][4]['user_agent']);
+    }
+
+    public function test_requests_limit_参数生效(): void
+    {
+        $sub = $this->createSub();
+        for ($i = 0; $i < 10; $i++) {
+            SubscriptionRequest::create([
+                'subscription_id' => $sub->id,
+                'ip' => "1.1.1.$i",
+                'user_agent' => "ua-$i",
+                'requested_at' => now()->subMinutes($i),
+            ]);
+        }
+
+        $data = $this->getJson("/api/v1/subscriptions/{$sub->id}/requests?limit=3", $this->authHeaders())->assertOk()->json();
+        $this->assertCount(3, $data['requests']);
+    }
+
+    public function test_requests_limit_超过_200_自动截断(): void
+    {
+        $sub = $this->createSub();
+        $data = $this->getJson("/api/v1/subscriptions/{$sub->id}/requests?limit=999", $this->authHeaders())->assertOk()->json();
+        $this->assertSame([], $data['requests']);
+    }
+
+    public function test_requests_只返回该订阅的_隔离其他订阅(): void
+    {
+        $subA = $this->createSub('tokA');
+        $subB = $this->createSub('tokB');
+        SubscriptionRequest::create(['subscription_id' => $subA->id, 'ip' => '1.1.1.1', 'user_agent' => 'A', 'requested_at' => now()]);
+        SubscriptionRequest::create(['subscription_id' => $subB->id, 'ip' => '2.2.2.2', 'user_agent' => 'B', 'requested_at' => now()]);
+
+        $data = $this->getJson("/api/v1/subscriptions/{$subA->id}/requests", $this->authHeaders())->assertOk()->json();
+        $this->assertCount(1, $data['requests']);
+        $this->assertSame('A', $data['requests'][0]['user_agent']);
+        $this->assertSame(1, $data['count_24h']);
+    }
+
+    public function test_requests_count_24h_与_limit_独立计算(): void
+    {
+        $sub = $this->createSub();
+        // 5 条 24h 内 + 3 条 2 天前
+        for ($i = 0; $i < 5; $i++) {
+            SubscriptionRequest::create(['subscription_id' => $sub->id, 'ip' => "a$i", 'user_agent' => 'u', 'requested_at' => now()->subHours(2)]);
+        }
+        for ($i = 0; $i < 3; $i++) {
+            SubscriptionRequest::create(['subscription_id' => $sub->id, 'ip' => "b$i", 'user_agent' => 'u', 'requested_at' => now()->subDays(2)]);
+        }
+
+        $data = $this->getJson("/api/v1/subscriptions/{$sub->id}/requests?limit=2", $this->authHeaders())->assertOk()->json();
+        // limit=2 只返 2 条最新，但 count_24h 仍是 5
+        $this->assertCount(2, $data['requests']);
+        $this->assertSame(5, $data['count_24h']);
+    }
+
+    public function test_requests_无记录返回空数组(): void
+    {
+        $sub = $this->createSub();
+        $data = $this->getJson("/api/v1/subscriptions/{$sub->id}/requests", $this->authHeaders())->assertOk()->json();
+        $this->assertSame([], $data['requests']);
+        $this->assertSame(0, $data['count_24h']);
+    }
+
+    public function test_requests_未认证返回_401(): void
+    {
+        $sub = $this->createSub();
+        $this->getJson("/api/v1/subscriptions/{$sub->id}/requests")->assertStatus(401);
+    }
 }

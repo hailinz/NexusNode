@@ -19,11 +19,16 @@ class SubscriptionController extends Controller
 {
     /**
      * 订阅列表：包含每个订阅的节点白名单数量（node_count，0 表示沿用全部启用节点）
+     * + 24h 拉取计数（request_count_24h，用于卡片徽章）
      * + subconverter_configured：是否配置了 SubConverter（决定是否支持 clash / singbox 等外部格式）
      */
     public function index(SubscriptionFormat $format): JsonResponse
     {
-        $subs = Subscription::query()->withCount('nodes')->orderBy('id')->get();
+        $subs = Subscription::query()
+            ->withCount('nodes')
+            ->withCount(['requests as request_count_24h' => fn ($q) => $q->where('requested_at', '>=', now()->subDay())])
+            ->orderBy('id')
+            ->get();
 
         return response()->json([
             'subscriptions' => $subs->map(fn (Subscription $s) => [
@@ -32,6 +37,7 @@ class SubscriptionController extends Controller
                 'description' => $s->description,
                 'enabled' => $s->enabled,
                 'node_count' => (int) $s->nodes_count,
+                'request_count_24h' => (int) $s->request_count_24h,
                 'url' => url('sub/'.$s->token),
             ]),
             'enabled_node_count' => Node::enabled()->count(),
@@ -124,6 +130,42 @@ class SubscriptionController extends Controller
                 'enabled' => $n->enabled,
                 'sort_order' => (int) $n->pivot->sort_order,
             ])->values(),
+        ]);
+    }
+
+    /**
+     * 该订阅的最近拉取请求日志（IP / UA / 时间），按 requested_at DESC。
+     */
+    public function requests(Subscription $subscription, Request $request): JsonResponse
+    {
+        $limit = min(200, max(1, (int) $request->query('limit', 50)));
+
+        $rows = SubscriptionRequest::query()
+            ->where('subscription_id', $subscription->id)
+            ->orderByDesc('requested_at')
+            ->limit($limit)
+            ->get()
+            ->map(fn (SubscriptionRequest $r) => [
+                'id' => $r->id,
+                'ip' => $r->ip,
+                'user_agent' => $r->user_agent,
+                'requested_at' => $r->requested_at->toIso8601String(),
+            ])
+            ->values();
+
+        $count24h = SubscriptionRequest::query()
+            ->where('subscription_id', $subscription->id)
+            ->where('requested_at', '>=', now()->subDay())
+            ->count();
+
+        return response()->json([
+            'subscription' => [
+                'id' => $subscription->id,
+                'name' => $subscription->name,
+                'enabled' => $subscription->enabled,
+            ],
+            'count_24h' => $count24h,
+            'requests' => $rows,
         ]);
     }
 
