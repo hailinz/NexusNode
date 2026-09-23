@@ -31,6 +31,7 @@ Route::prefix('v1')->group(function () {
 
         // 节点管理
         Route::delete('nodes/bulk', [NodeController::class, 'bulkDestroy']);
+        Route::patch('nodes/reorder', [NodeController::class, 'reorder']);
         Route::patch('nodes/{node}/move/{direction}', [NodeController::class, 'move'])
             ->whereIn('direction', ['up', 'down']);
         Route::patch('nodes/{node}/toggle', [NodeController::class, 'toggle']);

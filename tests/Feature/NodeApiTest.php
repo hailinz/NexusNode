@@ -8,15 +8,15 @@ use Tests\TestCase;
 
 class NodeApiTest extends TestCase
 {
-    use RefreshDatabase;
     use ApiAuth;
+    use RefreshDatabase;
 
     private function makeNode(string $name = 'A', array $overrides = []): Node
     {
         return Node::create([
-            'name' => $name, 'protocol' => 'vless', 'uuid' => 'u-' . $name,
+            'name' => $name, 'protocol' => 'vless', 'uuid' => 'u-'.$name,
             'address' => '10.0.0.1', 'port' => 443, 'security' => 'tls',
-            'sni' => strtolower($name) . '.com', 'network' => 'ws', 'enabled' => true,
+            'sni' => strtolower($name).'.com', 'network' => 'ws', 'enabled' => true,
             ...$overrides,
         ]);
     }
@@ -80,6 +80,75 @@ class NodeApiTest extends TestCase
         $order = Node::query()->orderBy('sort_order')->pluck('name')->all();
         $this->assertSame(['B', 'A', 'C'], $order);
         $this->assertSame([0, 1, 2], Node::query()->orderBy('sort_order')->pluck('sort_order')->all());
+    }
+
+    public function test_encryption_字段允许_255_字符(): void
+    {
+        $payload = 'chacha20-ietf-poly1305:'.str_repeat('a', 60);
+        $this->assertGreaterThan(50, strlen($payload));
+        $this->assertLessThanOrEqual(255, strlen($payload));
+
+        $node = $this->makeNode('A');
+        $this->putJson("/api/v1/nodes/{$node->id}", [
+            'name' => 'A', 'protocol' => 'ss',
+            'address' => '1.2.3.4', 'port' => 443,
+            'encryption' => $payload,
+            'enabled' => true,
+        ], $this->headers())->assertOk();
+
+        $this->assertSame($payload, $node->fresh()->encryption);
+    }
+
+    public function test_encryption_字段超过_255_字符返回_422(): void
+    {
+        $node = $this->makeNode('A');
+        $this->putJson("/api/v1/nodes/{$node->id}", [
+            'name' => 'A', 'protocol' => 'ss',
+            'address' => '1.2.3.4', 'port' => 443,
+            'encryption' => str_repeat('x', 256),
+            'enabled' => true,
+        ], $this->headers())->assertStatus(422);
+    }
+
+    public function test_reorder_按数组顺序重排_不影响其他节点(): void
+    {
+        $a = $this->makeNode('A', ['sort_order' => 10]);
+        $b = $this->makeNode('B', ['sort_order' => 20]);
+        $c = $this->makeNode('C', ['sort_order' => 30]);
+        $x = $this->makeNode('X', ['sort_order' => 40]); // 不参与本次 reorder
+
+        // 把 [A, B, C] 拖成 [C, A, B]
+        $this->patchJson('/api/v1/nodes/reorder', ['node_ids' => [$c->id, $a->id, $b->id]], $this->headers())
+            ->assertOk();
+
+        $names = Node::query()->orderBy('sort_order')->pluck('name')->all();
+        $this->assertSame(['C', 'A', 'B', 'X'], $names);
+        // X 的 sort_order 不变（40，最大）
+    }
+
+    public function test_reorder_不存在的id返回_422(): void
+    {
+        $a = $this->makeNode('A');
+        $this->patchJson('/api/v1/nodes/reorder', ['node_ids' => [$a->id, 999999]], $this->headers())
+            ->assertStatus(422);
+    }
+
+    public function test_reorder_重复id返回_422(): void
+    {
+        $a = $this->makeNode('A');
+        $this->patchJson('/api/v1/nodes/reorder', ['node_ids' => [$a->id, $a->id]], $this->headers())
+            ->assertStatus(422);
+    }
+
+    public function test_reorder_空数组返回_422(): void
+    {
+        $this->patchJson('/api/v1/nodes/reorder', ['node_ids' => []], $this->headers())
+            ->assertStatus(422);
+    }
+
+    public function test_reorder_未认证返回_401(): void
+    {
+        $this->patchJson('/api/v1/nodes/reorder', ['node_ids' => [1]])->assertStatus(401);
     }
 
     public function test_筛选与搜索(): void

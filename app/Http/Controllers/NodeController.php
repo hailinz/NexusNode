@@ -98,7 +98,7 @@ class NodeController extends Controller
     {
         $data = $this->validated($request);
         $data['extras'] = $this->parseExtras($request->input('extras_text'));
-        if (!isset($data['sort_order'])) {
+        if (! isset($data['sort_order'])) {
             unset($data['sort_order']);
         }
 
@@ -147,7 +147,7 @@ class NodeController extends Controller
 
     public function toggle(Node $node): JsonResponse
     {
-        $node->update(['enabled' => !$node->enabled]);
+        $node->update(['enabled' => ! $node->enabled]);
 
         return response()->json([
             'message' => $node->enabled ? '节点已启用' : '节点已禁用',
@@ -179,6 +179,41 @@ class NodeController extends Controller
     }
 
     /**
+     * 批量重排节点（拖拽排序用）。
+     *
+     * Body: { node_ids: [id1, id2, ...] } — 当前可见行的最终顺序。
+     *
+     * 算法：取出这些节点的当前 sort_order 升序排序，按 node_ids 数组顺序依次写回。
+     * 优点：不触碰其他节点（不影响其他页 / 已禁用节点），不归一化全表（不重排未参与拖动的节点）。
+     * 要求：node_ids 不能含重复 id；节点必须存在。
+     */
+    public function reorder(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'node_ids' => ['required', 'array'],
+            'node_ids.*' => ['integer', 'distinct'],
+        ]);
+
+        $ids = $validated['node_ids'];
+
+        $existing = Node::whereIn('id', $ids)->pluck('sort_order', 'id');
+        if ($existing->count() !== count($ids)) {
+            return response()->json([
+                'message' => '部分节点不存在',
+                'errors' => ['node_ids' => ['缺失 id：'.implode(', ', array_diff($ids, $existing->keys()->all()))]],
+            ], 422);
+        }
+
+        // 按现有 sort_order 升序作为"位置槽"，按数组顺序填回
+        $slots = $existing->sort()->values()->all();
+        foreach ($ids as $idx => $id) {
+            Node::where('id', $id)->update(['sort_order' => $slots[$idx]]);
+        }
+
+        return response()->json(['message' => '顺序已更新']);
+    }
+
+    /**
      * 输出为前端展示结构（含重建的代理链接与 CF/生成标记）
      */
     private function present(Node $node): array
@@ -200,7 +235,7 @@ class NodeController extends Controller
             'encryption' => $node->encryption,
             'alpn' => $node->alpn,
             'extras' => $node->extras,
-            'extras_text' => collect($node->extras ?? [])->map(fn ($v, $k) => $k . '=' . $v)->implode("\n"),
+            'extras_text' => collect($node->extras ?? [])->map(fn ($v, $k) => $k.'='.$v)->implode("\n"),
             'enabled' => $node->enabled,
             'is_cf' => $node->is_cf,
             'is_generated' => $node->is_generated,
@@ -227,7 +262,7 @@ class NodeController extends Controller
             'network' => ['nullable', Rule::in(['tcp', 'ws', 'grpc', 'http'])],
             'flow' => ['nullable', 'string', 'max:100'],
             'fingerprint' => ['nullable', 'string', 'max:50'],
-            'encryption' => ['nullable', 'string', 'max:50'],
+            'encryption' => ['nullable', 'string', 'max:255'],
             'alpn' => ['nullable', 'string', 'max:100'],
             'sort_order' => ['nullable', 'integer', 'min:0', 'max:999999'],
             'enabled' => ['nullable', 'boolean'],
@@ -246,7 +281,7 @@ class NodeController extends Controller
         $extras = [];
         foreach (preg_split('/\r\n|\r|\n/', $text) ?: [] as $line) {
             $line = trim($line);
-            if ($line === '' || !str_contains($line, '=')) {
+            if ($line === '' || ! str_contains($line, '=')) {
                 continue;
             }
             [$key, $value] = explode('=', $line, 2);
