@@ -7,6 +7,17 @@ let rootEl = null;
 let subsCache = [];
 let subconverterConfigured = false;
 
+/**
+ * ISO8601 字符串 → 浏览器本地时区的可读时间（YYYY-MM-DD HH:mm:ss）
+ * 输入 '2026-09-23T10:30:00+00:00' 在 UTC+8 下显示 '2026-09-23 18:30:00'
+ */
+function formatLocalTime(iso) {
+    const d = new Date(iso);
+    if (isNaN(d)) return iso;
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
 export async function renderSubscriptions(container) {
     rootEl = container;
     rootEl.innerHTML = '<div class="rounded-xl border border-slate-200/80 bg-white p-10 text-center text-sm text-slate-400 shadow-sm">加载中…</div>';
@@ -460,19 +471,24 @@ function openRequestsModal(sub) {
                 return;
             }
             modal.querySelector('#req-list').innerHTML = `
-            <table class="w-full text-sm">
-                <thead class="sticky top-0 bg-slate-50 text-xs uppercase tracking-wide text-slate-400">
-                    <tr><th class="px-5 py-2 text-left font-medium">时间</th><th class="px-5 py-2 text-left font-medium">IP</th><th class="px-5 py-2 text-left font-medium">客户端 UA</th></tr>
-                </thead>
-                <tbody class="divide-y divide-slate-100">
-                    ${data.requests.map(r => `
-                        <tr class="hover:bg-slate-50/60">
-                            <td class="px-5 py-2 font-mono text-xs text-slate-500">${esc(r.requested_at.replace('T', ' ').slice(0, 19))}</td>
-                            <td class="px-5 py-2 font-mono text-xs text-slate-700">${esc(r.ip)}</td>
-                            <td class="px-5 py-2 truncate text-xs text-slate-600" title="${esc(r.user_agent || '')}">${esc(r.user_agent || '—')}</td>
-                        </tr>`).join('')}
-                </tbody>
-            </table>`;
+            <div class="overflow-x-auto">
+                <table class="w-full table-fixed text-sm">
+                    <colgroup>
+                        <col class="w-44"><col class="w-32"><col>
+                    </colgroup>
+                    <thead class="sticky top-0 bg-slate-50 text-xs uppercase tracking-wide text-slate-400">
+                        <tr><th class="px-5 py-2 text-left font-medium">时间</th><th class="px-5 py-2 text-left font-medium">IP</th><th class="px-5 py-2 text-left font-medium">客户端 UA</th></tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        ${data.requests.map(r => `
+                            <tr class="hover:bg-slate-50/60">
+                                <td class="whitespace-nowrap px-5 py-2 font-mono text-xs text-slate-500" title="${esc(r.requested_at)}">${esc(formatLocalTime(r.requested_at))}</td>
+                                <td class="whitespace-nowrap px-5 py-2 font-mono text-xs text-slate-700">${esc(r.ip)}</td>
+                                <td class="px-5 py-2 text-xs text-slate-600"><div class="truncate" title="${esc(r.user_agent || '')}">${esc(r.user_agent || '—')}</div></td>
+                            </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>`;
         })
         .catch((err) => {
             modal.querySelector('#req-list').innerHTML =
