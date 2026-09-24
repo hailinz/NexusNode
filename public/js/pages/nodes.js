@@ -219,7 +219,7 @@ function bindEvents(root, data) {
     const syncBulk = () => {
         const boxes = [...root.querySelectorAll('.row-check')];
         const checkedIds = new Set(boxes.filter(b => b.checked).map(b => +b.value));
-        boxes.forEach(b => { b.checked ? state.checked.add(+b.value) : state.checked.delete(+b.value); });
+        state.checked = checkedIds;
         root.querySelector('#bulk-count').textContent = checkedIds.size;
         root.querySelector('#bulk-bar').classList.toggle('hidden', checkedIds.size === 0);
         root.querySelector('#bulk-bar').classList.toggle('flex', checkedIds.size > 0);
