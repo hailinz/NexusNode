@@ -66,6 +66,36 @@ class SubscriptionApiTest extends TestCase
         $this->assertMatchesRegularExpression('/^[0-9a-f]{32}$/', Subscription::first()->token);
     }
 
+    public function test_创建订阅支持自定义令牌(): void
+    {
+        $res = $this->postJson('/api/v1/subscriptions', ['name' => 'A', 'token' => 'my-home_01'], $this->authHeaders())
+            ->assertStatus(201);
+
+        $this->assertSame('my-home_01', Subscription::first()->token);
+        $this->assertStringEndsWith('/sub/my-home_01', $res->json('data.url'));
+    }
+
+    public function test_创建订阅空令牌走自动生成(): void
+    {
+        $this->postJson('/api/v1/subscriptions', ['name' => 'A', 'token' => ''], $this->authHeaders())
+            ->assertStatus(201);
+
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{32}$/', Subscription::first()->token);
+    }
+
+    public function test_创建订阅自定义令牌校验(): void
+    {
+        $this->createSub('taken-token');
+
+        foreach (['short', 'has space', 'a/b/cdef', '中文令牌令牌', str_repeat('a', 65), 'taken-token'] as $token) {
+            $this->postJson('/api/v1/subscriptions', ['name' => 'A', 'token' => $token], $this->authHeaders())
+                ->assertStatus(422)
+                ->assertJsonValidationErrors('token');
+        }
+
+        $this->assertDatabaseCount('subscriptions', 1);
+    }
+
     public function test_启停与重置令牌(): void
     {
         $sub = $this->createSub();
@@ -77,6 +107,34 @@ class SubscriptionApiTest extends TestCase
         $res = $this->patchJson("/api/v1/subscriptions/{$sub->id}/regenerate", [], $this->authHeaders())->assertOk();
         $this->assertNotSame($oldToken, $sub->fresh()->token);
         $this->assertStringContainsString($sub->fresh()->token, $res->json('url'));
+    }
+
+    public function test_修改为自定义令牌(): void
+    {
+        $sub = $this->createSub('old-token');
+
+        $res = $this->patchJson("/api/v1/subscriptions/{$sub->id}/regenerate", ['token' => 'new_token-1'], $this->authHeaders())
+            ->assertOk();
+
+        $this->assertSame('new_token-1', $sub->fresh()->token);
+        $this->assertStringEndsWith('/sub/new_token-1', $res->json('url'));
+        $this->get('/sub/old-token')->assertNotFound();
+    }
+
+    public function test_修改令牌校验_允许保持自身_拒绝占用他人(): void
+    {
+        $a = $this->createSub('token-a');
+        $this->createSub('token-b');
+
+        $this->patchJson("/api/v1/subscriptions/{$a->id}/regenerate", ['token' => 'token-a'], $this->authHeaders())->assertOk();
+
+        foreach (['token-b', 'short', 'a/b/cdef'] as $token) {
+            $this->patchJson("/api/v1/subscriptions/{$a->id}/regenerate", ['token' => $token], $this->authHeaders())
+                ->assertStatus(422)
+                ->assertJsonValidationErrors('token');
+        }
+
+        $this->assertSame('token-a', $a->fresh()->token);
     }
 
     public function test_删除订阅(): void

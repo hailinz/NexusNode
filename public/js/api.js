@@ -102,9 +102,9 @@ export const generateApi = {
 
 export const subsApi = {
     list: () => api.get('/subscriptions'),
-    create: (name, description) => api.post('/subscriptions', { name, description }),
+    create: (name, description, token) => api.post('/subscriptions', { name, description, token }),
     toggle: (id) => api.patch(`/subscriptions/${id}/toggle`),
-    regenerate: (id) => api.patch(`/subscriptions/${id}/regenerate`),
+    regenerate: (id, token) => api.patch(`/subscriptions/${id}/regenerate`, { token }),
     getNodes: (id, params) => api.get(`/subscriptions/${id}/nodes` + toQuery(params)),
     setNodes: (id, nodeIds) => api.put(`/subscriptions/${id}/nodes`, { node_ids: nodeIds }),
     getRequests: (id, limit = 50) => api.get(`/subscriptions/${id}/requests` + toQuery({ limit })),

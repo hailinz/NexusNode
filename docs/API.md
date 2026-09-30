@@ -225,7 +225,7 @@ IP 列表测速回写（仅更新已存在 IP 的延迟/丢包率，不改启用
   "subscriptions": [{
     "id": 1, "name": "我的订阅", "description": null,
     "enabled": true, "node_count": 5,
-    "url": "http://host/sub/{token}"
+    "token": "{token}", "url": "http://host/sub/{token}"
   }],
   "enabled_node_count": 12,
   "subconverter_configured": true
@@ -235,9 +235,16 @@ IP 列表测速回写（仅更新已存在 IP 的延迟/丢包率，不改启用
 - `node_count`：该订阅配置的节点白名单数量。`0` 表示沿用「全部启用节点」行为；`> 0` 表示订阅端点只输出这些节点（按白名单 sort_order 排序）。
 - `subconverter_configured`：是否在 `.env` 中配置了 `SUB_CONVERTER_URL`。`true` 表示订阅端点支持 Clash / sing-box / Surge 等外部格式；`false` 仅支持 base64。
 
-### POST /api/v1/subscriptions — `{ "name": "...", "description": "..." }` → 201
+### POST /api/v1/subscriptions — `{ "name": "...", "description": "...", "token": "..." }` → 201
+
+- `token`（可选）：自定义订阅令牌，6–64 位 `A-Z a-z 0-9 - _`，全局唯一；留空/不传则随机生成 32 位 hex。
+
+
 ### PATCH /api/v1/subscriptions/{id}/toggle — 启停
-### PATCH /api/v1/subscriptions/{id}/regenerate — 重置令牌（旧地址失效），响应含新 `url`
+### PATCH /api/v1/subscriptions/{id}/regenerate — `{ "token": "..." }` 修改令牌（旧地址失效），响应含新 `url`
+
+- `token`（可选）：规则同创建（唯一性校验排除自身）；留空/不传则随机重新生成。
+
 ### DELETE /api/v1/subscriptions/{id} — 删除（级联清理节点白名单关联）
 
 ### GET /api/v1/subscriptions/{id}/nodes

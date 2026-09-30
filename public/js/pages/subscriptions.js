@@ -41,6 +41,11 @@ export async function renderSubscriptions(container) {
                     <label class="mb-1.5 block text-sm font-medium text-slate-700">备注</label>
                     <input type="text" name="description" placeholder="用途说明（可选）" class="w-full rounded-lg border-slate-200 text-sm shadow-sm focus:border-indigo-400 focus:ring-indigo-100">
                 </div>
+                <div>
+                    <label class="mb-1.5 block text-sm font-medium text-slate-700">自定义令牌</label>
+                    <input type="text" name="token" minlength="6" maxlength="64" pattern="[A-Za-z0-9_\\-]+" title="6–64 位字母、数字、- 或 _" placeholder="留空则自动生成" class="w-full rounded-lg border-slate-200 font-mono text-sm shadow-sm focus:border-indigo-400 focus:ring-indigo-100">
+                    <p class="mt-1 text-xs text-slate-400">订阅地址为 /sub/{令牌}，6–64 位字母、数字、- 或 _</p>
+                </div>
                 <div class="flex justify-end">
                     <button class="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white shadow-sm shadow-indigo-600/20 transition hover:bg-indigo-500">创建</button>
                 </div>
@@ -105,7 +110,7 @@ function subCard(sub) {
                 <button data-requests class="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50">
                     📊 请求记录 ${sub.request_count_24h > 0 ? `<span class="rounded-full bg-slate-900 px-1.5 text-[10px] font-semibold text-white">${sub.request_count_24h}</span>` : ''}
                 </button>
-                <button data-regenerate class="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50">重置地址</button>
+                <button data-regenerate class="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50">修改地址</button>
                 <button data-delete class="rounded-lg border border-red-200 px-3 py-2 text-xs font-medium text-red-600 transition hover:bg-red-50">删除</button>
             </div>
         </div>
@@ -117,7 +122,7 @@ function bindEvents() {
         e.preventDefault();
         const fd = new FormData(e.target);
         try {
-            const res = await subsApi.create(fd.get('name'), fd.get('description'));
+            const res = await subsApi.create(fd.get('name'), fd.get('description'), fd.get('token').trim() || null);
             toast(res.message);
             await renderSubscriptions(rootEl);
         } catch (err) { toast(err.message, 'error'); }
@@ -141,10 +146,13 @@ function bindEvents() {
         } else if (e.target.closest('[data-requests]')) {
             openRequestsModal(sub);
         } else if (e.target.closest('[data-regenerate]')) {
-            if (!confirmBox('重置后旧订阅地址立即失效，确定？')) return;
-            const res = await subsApi.regenerate(id);
-            toast(res.message);
-            await renderSubscriptions(rootEl);
+            const input = window.prompt('输入新令牌（6–64 位字母、数字、- 或 _），留空则随机生成。\n修改后旧订阅地址立即失效。', sub.token);
+            if (input === null || input.trim() === sub.token) return;
+            try {
+                const res = await subsApi.regenerate(id, input.trim() || null);
+                toast(res.message);
+                await renderSubscriptions(rootEl);
+            } catch (err) { toast(err.message, 'error'); }
         } else if (e.target.closest('[data-delete]')) {
             if (!confirmBox(`确定删除订阅「${sub.name}」吗？关联的节点白名单将一并清理。`)) return;
             await subsApi.remove(id);

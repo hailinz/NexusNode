@@ -11,6 +11,7 @@ use App\Services\SubscriptionFormat;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -18,6 +19,21 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class SubscriptionController extends Controller
 {
+    private const TOKEN_MESSAGES = [
+        'token.min' => '令牌至少 6 位',
+        'token.max' => '令牌最多 64 位',
+        'token.regex' => '令牌只能包含字母、数字、- 和 _',
+        'token.unique' => '该令牌已被其他订阅使用',
+    ];
+
+    /**
+     * 自定义令牌校验：URL 安全字符 6–64 位、全局唯一（修改时排除自身）
+     */
+    private function tokenRules(?Subscription $current = null): array
+    {
+        return ['nullable', 'string', 'min:6', 'max:64', 'regex:/^[A-Za-z0-9_-]+$/', Rule::unique('subscriptions', 'token')->ignore($current)];
+    }
+
     /**
      * 订阅列表：包含每个订阅的节点白名单数量（node_count，0 表示沿用全部启用节点）
      * + 24h 拉取计数（request_count_24h，用于卡片徽章）
@@ -39,6 +55,7 @@ class SubscriptionController extends Controller
                 'enabled' => $s->enabled,
                 'node_count' => (int) $s->nodes_count,
                 'request_count_24h' => (int) $s->request_count_24h,
+                'token' => $s->token,
                 'url' => url('sub/'.$s->token),
             ]),
             'enabled_node_count' => Node::enabled()->count(),
@@ -46,14 +63,19 @@ class SubscriptionController extends Controller
         ]);
     }
 
+    /**
+     * 创建订阅：token 可自定义（URL 安全字符 6–64 位、全局唯一），留空则系统随机生成
+     */
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:100'],
             'description' => ['nullable', 'string', 'max:255'],
-        ]);
+            'token' => $this->tokenRules(),
+        ], self::TOKEN_MESSAGES);
 
-        $sub = Subscription::create($validated + ['token' => Subscription::generateToken(), 'enabled' => true]);
+        $validated['token'] ??= Subscription::generateToken();
+        $sub = Subscription::create($validated + ['enabled' => true]);
 
         return response()->json([
             'message' => "订阅「{$validated['name']}」已创建",
@@ -75,14 +97,16 @@ class SubscriptionController extends Controller
     }
 
     /**
-     * 重新生成订阅令牌（旧地址立即失效）
+     * 修改订阅令牌（旧地址立即失效）：传 token 则改为自定义值，留空则随机重新生成
      */
-    public function regenerate(Subscription $subscription): JsonResponse
+    public function regenerate(Subscription $subscription, Request $request): JsonResponse
     {
-        $subscription->update(['token' => Subscription::generateToken()]);
+        $token = $request->validate(['token' => $this->tokenRules($subscription)], self::TOKEN_MESSAGES)['token'] ?? null;
+
+        $subscription->update(['token' => $token ?? Subscription::generateToken()]);
 
         return response()->json([
-            'message' => "订阅「{$subscription->name}」的地址已重置",
+            'message' => "订阅「{$subscription->name}」的地址已".($token ? '修改' : '重置'),
             'url' => url('sub/'.$subscription->token),
         ]);
     }
