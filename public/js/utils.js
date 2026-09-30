@@ -21,7 +21,8 @@ export function toast(message, type = 'success') {
     if (!container) {
         container = document.createElement('div');
         container.id = 'toast-container';
-        container.className = 'fixed bottom-6 right-6 z-[60] space-y-2';
+        // 手机在顶部（底部常有固定操作栏），sm 起在右下角
+        container.className = 'pointer-events-none fixed inset-x-4 top-4 z-[60] flex flex-col items-center gap-2 sm:inset-x-auto sm:bottom-6 sm:right-6 sm:top-auto sm:items-end';
         document.body.appendChild(container);
     }
     const el = document.createElement('div');

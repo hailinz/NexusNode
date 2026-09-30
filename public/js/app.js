@@ -6,6 +6,7 @@ import { renderDashboard } from './pages/dashboard.js';
 import { renderNodes } from './pages/nodes.js';
 import { renderImports } from './pages/imports.js';
 import { renderPreferredIps } from './pages/preferredIps.js';
+import { renderOptimize } from './pages/onlineOptimize.js';
 import { renderGenerate } from './pages/generate.js';
 import { renderSubscriptions } from './pages/subscriptions.js';
 
@@ -14,6 +15,7 @@ const NAV = [
     { hash: '#/nodes', key: 'nodes', label: '节点管理', match: '#/nodes', icon: 'M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z' },
     { hash: '#/imports', key: 'imports', label: '批量导入', match: '#/imports', icon: 'M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5' },
     { hash: '#/preferred-ips', key: 'preferred-ips', label: 'CF 优选 IP', match: '#/preferred-ips', icon: 'M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m-18.432 0A8.959 8.959 0 013 12c0-.778.099-1.533.284-2.253' },
+    { hash: '#/optimize', key: 'optimize', label: '测速优选', match: '#/optimize', icon: 'M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z' },
     { hash: '#/generate', key: 'generate', label: '优选生成', match: '#/generate', icon: 'M9.813 15.904L9.375 21l-.438-5.096a2.25 2.25 0 00-1.966-1.966L1.875 13.5l5.096-.438a2.25 2.25 0 001.966-1.966L9.375 6l.438 5.096a2.25 2.25 0 001.966 1.966l5.096.438-5.096.438a2.25 2.25 0 00-1.966 1.966zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456z' },
     { hash: '#/subscriptions', key: 'subscriptions', label: '订阅管理', match: '#/subscriptions', icon: 'M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244' },
 ];
@@ -23,6 +25,7 @@ const PAGES = {
     nodes: renderNodes,
     imports: renderImports,
     'preferred-ips': renderPreferredIps,
+    optimize: renderOptimize,
     generate: renderGenerate,
     subscriptions: renderSubscriptions,
 };
@@ -60,7 +63,7 @@ function renderShell() {
                         <p class="text-xs text-slate-400">节点订阅管理</p>
                     </div>
                 </div>
-                <button id="sidebar-close" class="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-800 lg:hidden">✕</button>
+                <button id="sidebar-close" class="rounded-lg px-3 py-2 text-slate-400 transition hover:bg-slate-800 lg:hidden">✕</button>
             </div>
             <nav id="main-nav" class="flex-1 space-y-1 overflow-y-auto px-3">
                 ${NAV.map(item => `
@@ -116,7 +119,7 @@ function showChangePasswordModal() {
     <div class="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
         <div class="flex items-center justify-between">
             <h3 class="text-sm font-semibold text-slate-900">修改密码</h3>
-            <button type="button" data-close class="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">✕</button>
+            <button type="button" data-close class="rounded-lg px-2.5 py-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">✕</button>
         </div>
         <form id="change-password-form" class="mt-4 space-y-3">
             <div>
@@ -243,14 +246,16 @@ function route() {
         dashboard: ['总览', '代理节点与订阅的核心数据一览'],
         nodes: ['节点管理', '所有节点的统一管理：筛选、搜索、启停、测速与编辑'],
         imports: ['批量导入', '支持 vless / vmess / trojan / ss 链接，自动去重'],
-        'preferred-ips': ['CF 优选 IP', '优选 IP 池与浏览器测速优选'],
+        'preferred-ips': ['CF 优选 IP', '优选 IP 池：在线源同步、导入与测速'],
+        optimize: ['测速优选', '在当前网络下测速筛选 CF IP，达标的一键入库'],
         generate: ['优选生成', '选择模板节点与优选 IP，批量生成新节点'],
         subscriptions: ['订阅管理', '创建订阅地址，供代理客户端拉取'],
     };
     const [title, subtitle] = titles[pageKey] || ['NexusNode', ''];
     setPageHeader(title, subtitle);
 
-    PAGES[pageKey](document.getElementById('page-content'), query).catch(err => {
+    // 页面渲染函数可能是同步的（如批量导入），统一包成 Promise 再捕获错误
+    Promise.resolve().then(() => PAGES[pageKey](document.getElementById('page-content'), query)).catch(err => {
         document.getElementById('page-content').innerHTML =
             `<div class="rounded-xl border border-red-200 bg-red-50 px-5 py-6 text-sm text-red-700">${err.message}</div>`;
     });

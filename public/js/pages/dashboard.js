@@ -17,21 +17,21 @@ export async function renderDashboard(root) {
     ];
 
     root.innerHTML = `
-    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div class="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         ${cards.map(([label, value, hint, color]) => `
-            <div class="rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm">
-                <div class="flex items-center justify-between">
-                    <p class="text-sm text-slate-500">${label}</p>
-                    <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-${color}-50">
-                        <span class="h-2.5 w-2.5 rounded-full bg-${color}-500"></span>
+            <div class="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5">
+                <div class="flex items-center justify-between gap-2">
+                    <p class="truncate text-xs text-slate-500 sm:text-sm">${label}</p>
+                    <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-${color}-50 sm:h-9 sm:w-9">
+                        <span class="h-2 w-2 rounded-full bg-${color}-500 sm:h-2.5 sm:w-2.5"></span>
                     </div>
                 </div>
-                <p class="mt-2 text-3xl font-semibold tracking-tight text-slate-900">${value}</p>
-                <p class="mt-1 text-xs text-slate-400">${hint}</p>
+                <p class="mt-1.5 text-2xl font-semibold tracking-tight text-slate-900 sm:mt-2 sm:text-3xl">${value}</p>
+                <p class="mt-1 truncate text-xs text-slate-400">${hint}</p>
             </div>`).join('')}
     </div>
 
-    <div class="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <div class="mt-4 grid grid-cols-2 gap-3 sm:mt-6 sm:grid-cols-4">
         ${[
             ['#/nodes', '节点管理'],
             ['#/preferred-ips', '优选 IP'],
@@ -43,15 +43,26 @@ export async function renderDashboard(root) {
             </a>`).join('')}
     </div>
 
-    <div class="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-3">
+    <div class="mt-4 grid grid-cols-1 gap-4 sm:mt-6 sm:gap-6 xl:grid-cols-3">
         <div class="rounded-xl border border-slate-200/80 bg-white shadow-sm xl:col-span-2">
-            <div class="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+            <div class="flex items-center justify-between border-b border-slate-100 px-4 py-4 sm:px-5">
                 <h2 class="text-sm font-semibold text-slate-900">最近订阅请求</h2>
-                <a href="#/subscriptions" class="text-xs font-medium text-indigo-600 hover:text-indigo-500">订阅管理 →</a>
+                <a href="#/subscriptions" class="py-1 text-xs font-medium text-indigo-600 hover:text-indigo-500">订阅管理 →</a>
             </div>
             ${data.recent_requests.length === 0
                 ? '<div class="px-5 py-12 text-center text-sm text-slate-400">还没有订阅请求，客户端首次更新订阅后会显示在这里</div>'
-                : `<div class="overflow-x-auto"><table class="w-full text-sm">
+                : `<div class="divide-y divide-slate-50 sm:hidden">
+                    ${data.recent_requests.map(r => `
+                        <div class="px-4 py-3">
+                            <div class="flex items-center justify-between gap-2 text-xs">
+                                <span class="truncate font-medium text-slate-800">${esc(r.subscription)}</span>
+                                <span class="shrink-0 font-mono text-slate-400">${esc(formatTime(r.requested_at))}</span>
+                            </div>
+                            <p class="mt-1 font-mono text-xs text-slate-600">${esc(r.ip)}</p>
+                            <p class="mt-0.5 truncate font-mono text-[11px] text-slate-400">${esc(r.user_agent || '—')}</p>
+                        </div>`).join('')}
+                </div>
+                <div class="hidden overflow-x-auto sm:block"><table class="w-full text-sm">
                     <thead><tr class="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400">
                         <th class="px-5 py-2.5 font-medium">订阅</th><th class="px-4 py-2.5 font-medium">时间</th>
                         <th class="px-4 py-2.5 font-medium">IP</th><th class="px-4 py-2.5 font-medium">User-Agent</th>
@@ -68,8 +79,8 @@ export async function renderDashboard(root) {
         </div>
 
         <div class="rounded-xl border border-slate-200/80 bg-white shadow-sm">
-            <div class="border-b border-slate-100 px-5 py-4"><h2 class="text-sm font-semibold text-slate-900">订阅地址</h2></div>
-            <div class="px-5 py-4">
+            <div class="border-b border-slate-100 px-4 py-4 sm:px-5"><h2 class="text-sm font-semibold text-slate-900">订阅地址</h2></div>
+            <div class="px-4 py-4 sm:px-5">
                 ${data.recent_subscriptions.length === 0
                     ? '<p class="text-sm text-slate-400">还没有订阅，到「订阅管理」创建一个即可生成订阅地址。</p>'
                     : `<ul class="space-y-3">${data.recent_subscriptions.map(sub => `
@@ -79,7 +90,7 @@ export async function renderDashboard(root) {
                                 <span class="${sub.enabled ? 'text-emerald-600' : 'text-slate-400'} text-xs">${sub.enabled ? '启用中' : '已停用'}</span>
                             </div>
                             <button data-sub-qr="${esc(sub.name)}" data-sub-url="${esc(sub.url)}"
-                                    class="mt-1 block w-full truncate rounded-md bg-slate-50 px-2.5 py-1.5 text-left font-mono text-xs text-slate-500 hover:bg-slate-100"
+                                    class="mt-1 block w-full truncate rounded-md bg-slate-50 px-2.5 py-2 text-left font-mono text-xs text-slate-500 hover:bg-slate-100 sm:py-1.5"
                                     title="点击显示二维码">${esc(sub.url)}</button>
                         </li>`).join('')}</ul>`}
                 <p class="mt-4 border-t border-slate-100 pt-3 text-xs leading-relaxed text-slate-400">

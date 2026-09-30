@@ -11,7 +11,7 @@ export function showSubQrModal(name, url) {
             <div class="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-2xl">
                 <div class="flex items-center justify-between">
                     <h3 id="sub-qr-title" class="text-sm font-semibold text-slate-900">订阅二维码</h3>
-                    <button type="button" data-close class="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">✕</button>
+                    <button type="button" data-close class="rounded-lg px-2.5 py-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">✕</button>
                 </div>
                 <div class="mt-4 flex justify-center rounded-xl border border-slate-100 bg-white p-4">
                     <div id="sub-qr-code" class="[&img]:h-56 [&img]:w-56"></div>

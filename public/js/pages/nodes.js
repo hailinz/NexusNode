@@ -37,20 +37,20 @@ async function loadAndRender(root) {
             <button class="text-xs font-medium text-violet-600 hover:text-violet-500" data-clear-parent>查看全部节点 ×</button>
         </div>` : ''}
     <div class="rounded-xl border border-slate-200/80 bg-white shadow-sm">
-        <div class="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+        <div class="flex flex-col gap-3 border-b border-slate-100 px-4 py-4 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
             <div class="flex flex-wrap gap-1.5">
                 ${tabs.map(([key, label]) => `
-                    <button data-filter="${key}" class="rounded-lg px-3 py-1.5 text-xs font-medium transition ${state.filter === key ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">${label}</button>`).join('')}
+                    <button data-filter="${key}" class="rounded-lg px-3 py-2 text-xs font-medium transition sm:py-1.5 ${state.filter === key ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">${label}</button>`).join('')}
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                <form id="search-form" class="flex gap-2">
+                <form id="search-form" class="flex w-full gap-2 sm:w-auto">
                     <input type="hidden" name="filter" value="${esc(state.filter)}">
                     <input type="hidden" name="per_page" value="${state.perPage}">
-                    <input type="text" name="q" value="${esc(state.q)}" placeholder="搜索名称 / 地址 / SNI"
-                           class="w-44 rounded-lg border-slate-200 text-sm shadow-sm focus:border-indigo-400 focus:ring-indigo-100">
-                    <button class="rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-indigo-500">搜索</button>
+                    <input type="search" name="q" value="${esc(state.q)}" placeholder="搜索名称 / 地址 / SNI"
+                           class="min-w-0 flex-1 rounded-lg border-slate-200 py-1.5 text-sm shadow-sm sm:w-44 sm:flex-none">
+                    <button class="shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-medium text-white shadow-sm transition hover:bg-indigo-500">搜索</button>
                 </form>
-                <button id="ping-btn" class="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-slate-700 disabled:opacity-60">
+                <button id="ping-btn" class="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2 text-xs font-medium text-white shadow-sm transition hover:bg-slate-700 disabled:opacity-60">
                     ⚡ <span id="ping-btn-text">延迟测试</span>
                 </button>
                 <span id="ping-stats" class="text-xs text-slate-400"></span>
@@ -68,6 +68,7 @@ async function loadAndRender(root) {
                 <table class="w-full min-w-[860px] text-sm">
                     <thead>
                         <tr class="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400">
+                            <th class="w-6 px-2 py-3"></th>
                             <th class="w-10 px-4 py-3"><input type="checkbox" data-check-all title="全选本页" class="h-4 w-4 rounded border-slate-300 text-indigo-600"></th>
                             <th class="px-4 py-3 font-medium">节点</th>
                             <th class="px-4 py-3 font-medium">协议</th>
@@ -80,7 +81,7 @@ async function loadAndRender(root) {
                         </tr>
                     </thead>
                     <tbody id="node-tbody" class="divide-y divide-slate-50">
-                        ${data.data.length === 0 ? emptyRow(9, '没有匹配的节点，去「批量导入」粘贴链接吧') : data.data.map(nodeRow).join('')}
+                        ${data.data.length === 0 ? emptyRow(10, '没有匹配的节点，去「批量导入」粘贴链接吧') : data.data.map(nodeRow).join('')}
                     </tbody>
                 </table>
             </div>
@@ -99,10 +100,10 @@ async function loadAndRender(root) {
             </div>
         </div>
 
-        <div class="flex flex-col gap-3 border-t border-slate-100 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div class="flex flex-col gap-3 border-t border-slate-100 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
             <div id="pagination" class="flex flex-wrap items-center gap-1 text-xs"></div>
             <label class="flex items-center gap-2 text-xs text-slate-500">每页显示
-                <select id="per-page" class="rounded-lg border-slate-200 py-1 text-xs shadow-sm focus:border-indigo-400 focus:ring-indigo-100">
+                <select id="per-page" class="rounded-lg border-slate-200 py-1 pl-2 text-xs shadow-sm">
                     ${[20, 50, 100, 200].map(n => `<option value="${n}" ${state.perPage === n ? 'selected' : ''}>${n}</option>`).join('')}
                 </select> 条
             </label>
@@ -175,25 +176,25 @@ function nodeCard(n) {
                 <div class="flex items-center gap-1.5">
                     <p class="truncate text-sm font-medium text-slate-800">${esc(n.name)}</p>
                     ${n.is_cf ? '<span class="shrink-0 rounded-full bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-600 ring-1 ring-inset ring-sky-200">CF</span>' : ''}
-                    ${n.is_generated ? '<span class="shrink-0 rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-200">生成</span>' : ''}
+                    ${n.is_generated ? '<span class="shrink-0 rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-600 ring-1 ring-inset ring-violet-200">生成</span>' : ''}
                 </div>
                 <p class="mt-0.5 truncate font-mono text-xs text-slate-600">${esc(n.address)}<span class="font-semibold">:${n.port}</span></p>
                 <p class="mt-0.5 truncate text-xs text-slate-400" title="${esc(n.sni || '')}">${esc((n.protocol || '').toUpperCase())} · ${esc(n.network || 'tcp')}${n.path ? ' · ' + esc(n.path) : ''}${n.sni ? ' · SNI ' + esc(n.sni) : ''}</p>
             </div>
-            <button data-toggle class="shrink-0 self-center inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition ${n.enabled
+            <button data-toggle class="shrink-0 self-center inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${n.enabled
                 ? 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200 hover:bg-emerald-100'
                 : 'bg-slate-100 text-slate-400 ring-1 ring-inset ring-slate-200 hover:bg-slate-200'}">
                 <span class="inline-block h-1.5 w-1.5 rounded-full ${n.enabled ? 'bg-emerald-500' : 'bg-slate-400'}"></span>
                 ${n.enabled ? '启用' : '禁用'}
             </button>
         </div>
-        <div class="mt-2.5 flex items-center justify-between gap-2">
+        <div class="mt-2 flex items-center justify-between gap-2 pl-12">
             <span class="latency-cell text-xs">${latencyHtml}</span>
-            <div class="flex items-center gap-0.5">
-                <button data-ping-single title="测速（当前网络环境）" class="rounded-md p-1.5 text-slate-400 transition hover:bg-emerald-50 hover:text-emerald-600">⚡</button>
-                <button data-copy="${esc(n.uri)}" title="复制链接" class="rounded-md p-1.5 text-slate-400 transition hover:bg-indigo-50 hover:text-indigo-600">⧉</button>
-                <button data-edit title="编辑" class="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">✎</button>
-                <button data-delete title="删除" class="rounded-md p-1.5 text-slate-400 transition hover:bg-red-50 hover:text-red-600">✕</button>
+            <div class="flex items-center gap-1">
+                <button data-ping-single title="测速（当前网络环境）" class="h-9 w-9 rounded-lg text-slate-400 transition hover:bg-emerald-50 hover:text-emerald-600">⚡</button>
+                <button data-copy="${esc(n.uri)}" title="复制链接" class="h-9 w-9 rounded-lg text-slate-400 transition hover:bg-indigo-50 hover:text-indigo-600">⧉</button>
+                <button data-edit title="编辑" class="h-9 w-9 rounded-lg text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">✎</button>
+                <button data-delete title="删除" class="h-9 w-9 rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600">✕</button>
             </div>
         </div>
     </div>`;
@@ -251,7 +252,7 @@ function bindEvents(root, data) {
     const pagination = root.querySelector('#pagination');
     const meta = data.meta;
     const pageBtn = (label, page, active = false, disabled = false) =>
-        `<button data-page="${page}" ${active ? 'class="rounded-md bg-indigo-600 px-2.5 py-1 font-medium text-white"' : ''} ${disabled ? 'disabled class="px-2.5 py-1 text-slate-300"' : `class="rounded-md px-2.5 py-1 ${active ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'}"`}>${label}</button>`;
+        `<button data-page="${page}" ${disabled ? 'disabled' : ''} class="min-w-[2.25rem] rounded-md px-2.5 py-2 sm:min-w-0 sm:py-1 ${disabled ? 'text-slate-300' : active ? 'bg-indigo-600 font-medium text-white' : 'text-slate-600 hover:bg-slate-100'}">${label}</button>`;
     let html = pageBtn('‹', Math.max(1, meta.current_page - 1), false, meta.current_page <= 1);
     for (let p = 1; p <= meta.last_page; p++) html += pageBtn(p, p, p === meta.current_page);
     html += pageBtn('›', Math.min(meta.last_page, meta.current_page + 1), false, meta.current_page >= meta.last_page);
@@ -432,7 +433,7 @@ function openNodeForm(root, node, onSaved) {
     <div class="mx-auto mt-4 w-full max-w-3xl rounded-2xl bg-white shadow-2xl">
         <div class="flex items-center justify-between border-b border-slate-100 px-6 py-4">
             <h3 class="text-sm font-semibold text-slate-900">${isEdit ? '编辑节点' : '新建节点'}</h3>
-            <button data-close class="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">✕</button>
+            <button data-close class="rounded-lg px-2.5 py-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">✕</button>
         </div>
         <form id="node-form" class="grid grid-cols-1 gap-x-6 gap-y-4 px-6 py-5 sm:grid-cols-2 lg:grid-cols-3 max-h-[70vh] overflow-y-auto">
             <div><label class="mb-1 block text-sm font-medium text-slate-700">名称 *</label>
@@ -480,7 +481,8 @@ function openNodeForm(root, node, onSaved) {
     modal.classList.add('flex');
 
     const close = () => { modal.classList.add('hidden'); modal.classList.remove('flex'); modal.innerHTML = ''; };
-    modal.querySelector('[data-close]').addEventListener('click', close);
+    // 标题栏 ✕ 与底部「取消」都要能关闭
+    modal.querySelectorAll('[data-close]').forEach(btn => btn.addEventListener('click', close));
     modal.querySelector('[data-save]').addEventListener('click', async () => {
         const form = modal.querySelector('#node-form');
         const payload = {

@@ -26,8 +26,9 @@ export async function renderSubscriptions(container) {
     subsCache = data.subscriptions;
     subconverterConfigured = !!data.subconverter_configured;
 
+    // 手机上按「创建 → 订阅列表 → 如何使用」排列（order），xl 起恢复「创建 + 如何使用」并排、列表在下
     rootEl.innerHTML = `
-    <div class="grid grid-cols-1 gap-6 xl:grid-cols-3">
+    <div class="grid grid-cols-1 gap-4 sm:gap-6 xl:grid-cols-3">
         <div class="rounded-xl border border-slate-200/80 bg-white shadow-sm">
             <div class="border-b border-slate-100 px-5 py-4">
                 <h2 class="text-sm font-semibold text-slate-900">创建订阅</h2>
@@ -52,7 +53,7 @@ export async function renderSubscriptions(container) {
             </form>
         </div>
 
-        <div class="rounded-xl border border-slate-200/80 bg-gradient-to-br from-indigo-500 to-violet-600 p-5 text-white shadow-sm xl:col-span-2">
+        <div class="order-last rounded-xl border border-slate-200/80 bg-gradient-to-br from-indigo-500 to-violet-600 p-5 text-white shadow-sm xl:order-none xl:col-span-2">
             <h2 class="text-sm font-semibold">如何使用</h2>
             <ol class="mt-3 space-y-2 text-sm text-indigo-100">
                 <li class="flex gap-2"><span class="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/20 text-xs">1</span>创建订阅后点击地址打开二维码，或复制订阅地址</li>
@@ -63,12 +64,12 @@ export async function renderSubscriptions(container) {
                 <b>默认</b>输出全部启用节点；可在订阅卡片点「管理节点」配置独立白名单。
             </p>
         </div>
-    </div>
 
-    <div class="mt-6 space-y-4" id="sub-list">
-        ${subsCache.length === 0
-            ? '<div class="rounded-xl border border-slate-200/80 bg-white px-5 py-16 text-center text-sm text-slate-400 shadow-sm">还没有订阅，左上角创建一个即可获得订阅地址</div>'
-            : subsCache.map(subCard).join('')}
+        <div class="space-y-4 xl:col-span-3" id="sub-list">
+            ${subsCache.length === 0
+                ? '<div class="rounded-xl border border-slate-200/80 bg-white px-5 py-16 text-center text-sm text-slate-400 shadow-sm">还没有订阅，先在「创建订阅」填写名称即可获得订阅地址</div>'
+                : subsCache.map(subCard).join('')}
+        </div>
     </div>`;
 
     bindEvents();
@@ -92,7 +93,7 @@ function subCard(sub) {
                     <p class="text-sm font-semibold text-slate-900">${esc(sub.name)}</p>
                     ${badge}
                     ${formatBadges}
-                    <button data-toggle class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition ${sub.enabled
+                    <button data-toggle class="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition sm:px-2.5 sm:py-1 ${sub.enabled
                         ? 'bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200 hover:bg-emerald-100'
                         : 'bg-slate-100 text-slate-400 ring-1 ring-inset ring-slate-200 hover:bg-slate-200'}">
                         <span class="inline-block h-1.5 w-1.5 rounded-full ${sub.enabled ? 'bg-emerald-500' : 'bg-slate-400'}"></span>
@@ -168,42 +169,43 @@ function openNodesManager(sub) {
     if (!modal) {
         modal = document.createElement('div');
         modal.id = 'sub-nodes-modal';
-        modal.className = 'fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm';
+        // 手机上全屏铺满（内容多、需要两栏上下排），sm 起为居中卡片
+        modal.className = 'fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 backdrop-blur-sm sm:p-4';
         modal.innerHTML = `
-        <div class="flex h-full max-h-[90vh] w-full max-w-5xl flex-col rounded-2xl bg-white shadow-2xl">
-            <div class="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-                <div>
-                    <h3 class="text-sm font-semibold text-slate-900">管理节点 · <span id="mn-sub-name"></span></h3>
-                    <p class="mt-0.5 text-xs text-slate-400">勾选节点加入白名单；右栏调整顺序决定订阅内输出顺序</p>
+        <div class="flex h-full w-full max-w-5xl flex-col bg-white shadow-2xl sm:max-h-[90vh] sm:rounded-2xl">
+            <div class="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5 sm:py-4">
+                <div class="min-w-0">
+                    <h3 class="truncate text-sm font-semibold text-slate-900">管理节点 · <span id="mn-sub-name"></span></h3>
+                    <p class="mt-0.5 text-xs text-slate-400">勾选节点加入白名单；在「已选」中用 ↑↓ 调整订阅内输出顺序</p>
                 </div>
-                <button type="button" data-close class="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">✕</button>
+                <button type="button" data-close class="shrink-0 rounded-lg px-2.5 py-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">✕</button>
             </div>
-            <div class="grid flex-1 min-h-0 grid-cols-1 gap-4 px-5 py-4 lg:grid-cols-2">
+            <div class="grid min-h-0 flex-1 grid-cols-1 grid-rows-2 gap-3 px-3 py-3 sm:gap-4 sm:px-5 sm:py-4 lg:grid-cols-2 lg:grid-rows-1">
                 <div class="flex min-h-0 flex-col rounded-xl border border-slate-200">
                     <div class="border-b border-slate-100 px-3 py-2.5">
                         <p class="text-xs font-semibold text-slate-700">可选节点</p>
                         <div class="mt-2 flex flex-wrap gap-1.5" id="mn-filters"></div>
                         <form id="mn-search" class="mt-2 flex gap-2">
-                            <input type="text" name="q" placeholder="搜索名称 / 地址 / SNI" class="flex-1 rounded-lg border-slate-200 text-xs shadow-sm focus:border-indigo-400 focus:ring-indigo-100">
-                            <button class="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-200">搜索</button>
+                            <input type="search" name="q" placeholder="搜索名称 / 地址 / SNI" class="min-w-0 flex-1 rounded-lg border-slate-200 py-1.5 text-xs shadow-sm">
+                            <button class="shrink-0 rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-200">搜索</button>
                         </form>
                     </div>
                     <div id="mn-available" class="flex-1 overflow-y-auto"></div>
                     <div id="mn-pagination" class="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 px-3 py-2 text-xs"></div>
                 </div>
                 <div class="flex min-h-0 flex-col rounded-xl border border-indigo-200 bg-indigo-50/30">
-                    <div class="flex items-center justify-between border-b border-indigo-100 px-3 py-2.5">
-                        <p class="text-xs font-semibold text-indigo-900">已选 <span id="mn-count">0</span> 个 · 拖动 ↑↓ 调整顺序</p>
-                        <button type="button" id="mn-clear" class="rounded-lg border border-red-200 px-2 py-1 text-[11px] font-medium text-red-600 transition hover:bg-red-50">清空白名单</button>
+                    <div class="flex items-center justify-between gap-2 border-b border-indigo-100 px-3 py-2.5">
+                        <p class="text-xs font-semibold text-indigo-900">已选 <span id="mn-count">0</span> 个 · ↑↓ 调整顺序</p>
+                        <button type="button" id="mn-clear" class="shrink-0 rounded-lg border border-red-200 px-2.5 py-1.5 text-[11px] font-medium text-red-600 transition hover:bg-red-50 sm:py-1">清空白名单</button>
                     </div>
                     <div id="mn-selected" class="flex-1 overflow-y-auto"></div>
                 </div>
             </div>
-            <div class="flex items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/60 px-5 py-3 rounded-b-2xl">
+            <div class="flex flex-col gap-2 border-t border-slate-100 bg-slate-50/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:rounded-b-2xl sm:px-5">
                 <p class="text-xs text-slate-500" id="mn-hint">空数组 = 沿用「全部启用节点」行为</p>
-                <div class="flex gap-2">
-                    <button data-close class="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100">取消</button>
-                    <button id="mn-save" class="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white shadow-sm shadow-indigo-600/20 transition hover:bg-indigo-500">保存</button>
+                <div class="grid shrink-0 grid-cols-2 gap-2 sm:flex">
+                    <button data-close class="whitespace-nowrap rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100 sm:border-0 sm:bg-transparent sm:py-2">取消</button>
+                    <button id="mn-save" class="whitespace-nowrap rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm shadow-indigo-600/20 transition hover:bg-indigo-500 sm:py-2">保存</button>
                 </div>
             </div>
         </div>`;
@@ -245,7 +247,7 @@ function openNodesManager(sub) {
         modal.querySelector('#mn-count').textContent = count;
 
         if (count === 0) {
-            container.innerHTML = '<div class="px-4 py-10 text-center text-xs text-slate-400">暂无节点；左侧勾选后加入</div>';
+            container.innerHTML = '<div class="px-4 py-10 text-center text-xs text-slate-400">暂无节点；在「可选节点」中勾选后加入</div>';
             return;
         }
 
@@ -260,9 +262,9 @@ function openNodesManager(sub) {
                 <p class="truncate font-mono text-[11px] text-slate-400">${esc(n.protocol)} · ${esc(n.address)}:${n.port}</p>
             </div>
             <div class="flex shrink-0 gap-0.5">
-                <button data-move="up" title="上移" class="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">↑</button>
-                <button data-move="down" title="下移" class="rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">↓</button>
-                <button data-remove title="移除" class="rounded p-1 text-slate-400 transition hover:bg-red-50 hover:text-red-600">✕</button>
+                <button data-move="up" title="上移" class="h-8 w-8 rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 sm:h-6 sm:w-6">↑</button>
+                <button data-move="down" title="下移" class="h-8 w-8 rounded-md text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 sm:h-6 sm:w-6">↓</button>
+                <button data-remove title="移除" class="h-8 w-8 rounded-md text-slate-400 transition hover:bg-red-50 hover:text-red-600 sm:h-6 sm:w-6">✕</button>
             </div>
         </div>`).join('');
     };
@@ -293,7 +295,7 @@ function openNodesManager(sub) {
         const container = modal.querySelector('#mn-pagination');
         const { current_page: cur, last_page: last, total } = state.meta;
         const btn = (label, page, active = false, disabled = false) =>
-            `<button data-page="${page}" ${disabled ? 'disabled' : ''} class="rounded px-2 py-0.5 ${active ? 'bg-indigo-600 text-white' : disabled ? 'text-slate-300' : 'text-slate-600 hover:bg-slate-100'}">${label}</button>`;
+            `<button data-page="${page}" ${disabled ? 'disabled' : ''} class="min-w-[2rem] rounded px-2 py-1.5 sm:min-w-0 sm:py-0.5 ${active ? 'bg-indigo-600 text-white' : disabled ? 'text-slate-300' : 'text-slate-600 hover:bg-slate-100'}">${label}</button>`;
         let html = btn('‹', Math.max(1, cur - 1), false, cur <= 1);
         for (let p = 1; p <= last; p++) html += btn(p, p, p === cur);
         html += btn('›', Math.min(last, cur + 1), false, cur >= last);
@@ -305,7 +307,7 @@ function openNodesManager(sub) {
             ['all', '全部'], ['cf', 'CF 优选'], ['generated', '优选生成'], ['disabled', '已禁用'],
         ];
         modal.querySelector('#mn-filters').innerHTML = tabs.map(([k, l]) =>
-            `<button data-filter="${k}" class="rounded px-2 py-0.5 text-[11px] font-medium transition ${state.filter === k ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">${l}</button>`
+            `<button data-filter="${k}" class="rounded-md px-2.5 py-1.5 text-[11px] font-medium transition sm:px-2 sm:py-0.5 ${state.filter === k ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}">${l}</button>`
         ).join('');
     };
 
@@ -430,21 +432,21 @@ function openRequestsModal(sub) {
     if (!modal) {
         modal = document.createElement('div');
         modal.id = 'sub-requests-modal';
-        modal.className = 'fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm';
+        modal.className = 'fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 backdrop-blur-sm sm:p-4';
         modal.innerHTML = `
-        <div class="flex h-full max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl bg-white shadow-2xl">
-            <div class="flex items-center justify-between border-b border-slate-100 px-5 py-4">
-                <div>
-                    <h3 class="text-sm font-semibold text-slate-900">请求记录 · <span id="req-sub-name"></span></h3>
+        <div class="flex h-full w-full max-w-3xl flex-col bg-white shadow-2xl sm:max-h-[90vh] sm:rounded-2xl">
+            <div class="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 sm:px-5 sm:py-4">
+                <div class="min-w-0">
+                    <h3 class="truncate text-sm font-semibold text-slate-900">请求记录 · <span id="req-sub-name"></span></h3>
                     <p class="mt-0.5 text-xs text-slate-400">最近 50 次拉取记录（IP / UA / 时间）</p>
                 </div>
-                <button type="button" data-close class="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">✕</button>
+                <button type="button" data-close class="shrink-0 rounded-lg px-2.5 py-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">✕</button>
             </div>
             <div class="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-2.5 text-xs text-slate-500">
                 <span id="req-summary">加载中…</span>
             </div>
             <div id="req-list" class="flex-1 overflow-y-auto"></div>
-            <div class="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/60 px-5 py-3 rounded-b-2xl">
+            <div class="flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/60 px-4 py-3 sm:rounded-b-2xl sm:px-5">
                 <button data-close class="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100">关闭</button>
             </div>
         </div>`;

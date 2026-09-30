@@ -7,6 +7,7 @@
 //    trace 响应含 colo（数据中心 IATA 码），机房国家由 colo 反查 locations；
 //    用户侧运营商（cnIspCode）对所有 IP 相同，解析探测域名时从 ip.json 取一次
 // ③ 达标入库：写回 IP 池（备注回填「运营商 · 国家 · 数据中心」，仅当原备注为空）
+// 独立页面 #/optimize（renderOptimize）；IP 池「本页全测」复用本模块的 measureIp
 
 import { api, ipsApi } from '../api.js';
 import { esc, toast } from '../utils.js';
@@ -33,9 +34,11 @@ const OO_LOCATIONS_TTL_MS = 7 * 86400 * 1000; // 地理映射本地缓存 7 天
 const OO_SAMPLES = 5;
 const OO_SPIKE_MS = 150;
 
+// 模块级状态：切换页面不丢失（测速可在后台继续，回到页面时还原输入、进度与结果）
 const ooState = {
     running: false, stopped: false, results: [], controllers: new Set(),
     bestHost: '', hostPromise: null, isp: '', locationsByIata: new Map(), cursor: 0,
+    timeout: 500, form: {}, importStatus: '', progress: { done: 0, total: 0, text: '' },
 };
 
 // ---------- 工具函数（移植 cf.html） ----------
@@ -385,6 +388,10 @@ function ooIspFromCode(code) {
 }
 
 // ---------- 渲染 ----------
+// 测速在离开页面后继续进行：DOM 更新前先判断页面是否挂载，回到页面时由 renderOptimize 按 ooState 还原
+const $ = id => document.getElementById(id);
+const ooMounted = () => !!$('oo-page');
+
 function ooLatencyColor(ms, timeout) {
     return ms < timeout / 3 ? 'text-emerald-600' : (ms < timeout * 2 / 3 ? 'text-amber-600' : 'text-slate-500');
 }
@@ -398,81 +405,120 @@ function ooLossColor(loss) {
     return loss === 0 ? 'text-emerald-600' : (loss <= 40 ? 'text-amber-600' : 'text-red-500');
 }
 
-// 运营商对本轮所有 IP 相同，只在结果标题旁显示一次；
-// 每行展示机房、延迟（最低值）、丢包与各次采样（橙色 = 重传毛刺，× = 超时）
-function ooRerender() {
-    const tbody = document.getElementById('oo-results');
-    const timeout = +document.getElementById('oo-timeout').value || 500;
-    const sorted = [...ooState.results].sort(ooCompare);
-    tbody.innerHTML = sorted.map((r, i) => {
-        const country = ooResultCountry(r);
-        const samples = r.samples.map(v => v === null
-            ? '<span class="text-red-400">×</span>'
-            : (v - r.latency > OO_SPIKE_MS ? `<span class="text-amber-500">${v}</span>` : v)
-        ).join('<span class="text-slate-300"> / </span>');
-        return `<tr class="border-b border-slate-50">
-        <td class="py-2 pr-4 text-xs text-slate-400">${i + 1}</td>
-        <td class="py-2 pr-4 font-mono text-xs font-medium text-slate-800 break-all">${esc(r.address)}</td>
-        <td class="py-2 pr-4 text-xs text-slate-600"><span class="font-mono">${esc(r.colo)}</span>${country !== '未知' ? ` <span class="text-slate-400">· ${esc(country)}</span>` : ''}</td>
-        <td class="py-2 pr-4 font-mono text-xs font-semibold ${ooLatencyColor(r.latency, timeout)}">${r.latency} ms</td>
-        <td class="py-2 pr-4 font-mono text-xs ${ooLossColor(r.loss)}">${r.loss}%</td>
-        <td class="py-2 font-mono text-[11px] text-slate-400">${samples}</td>
-    </tr>`;
-    }).join('') || `<tr><td colspan="6" class="py-10 text-center text-sm text-slate-400">${ooState.running ? '测速中…' : '暂无可用 IP'}</td></tr>`;
-    document.getElementById('oo-result-count').textContent = `${sorted.length} 个可用`;
-    document.getElementById('oo-isp').textContent = ooState.isp ? `测速线路：${ooState.isp}` : '';
+// 各次采样：橙色 = 重传毛刺，× = 超时
+function ooSamplesHtml(r) {
+    return r.samples.map(v => v === null
+        ? '<span class="text-red-400">×</span>'
+        : (v - r.latency > OO_SPIKE_MS ? `<span class="text-amber-500">${v}</span>` : v)
+    ).join('<span class="text-slate-300"> / </span>');
 }
 
-function ooSetProgress(done, total, statusText) {
-    document.getElementById('oo-progress-wrap').classList.remove('hidden');
-    document.getElementById('oo-progress-text').textContent = `${done} / ${total}`;
-    document.getElementById('oo-progress-bar').style.width = total ? Math.round(done / total * 100) + '%' : '0%';
-    if (statusText) document.getElementById('oo-progress-status').textContent = statusText;
+function ooWhereHtml(r) {
+    const country = ooResultCountry(r);
+    return `<span class="font-mono">${esc(r.colo)}</span>${country !== '未知' ? ` <span class="text-slate-400">· ${esc(country)}</span>` : ''}`;
+}
+
+// 结果同时渲染桌面表格与移动端卡片（纯展示、无勾选，两份 DOM 无需同步状态）；
+// 运营商对本轮所有 IP 相同，只在标题旁显示一次
+function ooRerender() {
+    if (!ooMounted()) return;
+    const sorted = [...ooState.results].sort(ooCompare);
+    const empty = ooState.running ? '测速中…' : (ooState.progress.total ? '暂无可用 IP' : '导入候选 IP 后点击「开始优选」');
+    $('oo-results').innerHTML = sorted.map((r, i) => `<tr class="transition hover:bg-slate-50/70">
+        <td class="py-2.5 pl-5 pr-4 text-xs text-slate-400">${i + 1}</td>
+        <td class="py-2.5 pr-4 font-mono text-xs font-medium text-slate-800">${esc(r.address)}</td>
+        <td class="py-2.5 pr-4 text-xs text-slate-600">${ooWhereHtml(r)}</td>
+        <td class="py-2.5 pr-4 font-mono text-xs font-semibold ${ooLatencyColor(r.latency, ooState.timeout)}">${r.latency} ms</td>
+        <td class="py-2.5 pr-4 font-mono text-xs ${ooLossColor(r.loss)}">${r.loss}%</td>
+        <td class="py-2.5 pr-5 font-mono text-[11px] text-slate-400">${ooSamplesHtml(r)}</td>
+    </tr>`).join('') || `<tr><td colspan="6" class="py-12 text-center text-sm text-slate-400">${empty}</td></tr>`;
+    $('oo-results-m').innerHTML = sorted.map((r, i) => `<div class="flex items-center gap-3 px-4 py-3">
+        <span class="w-5 shrink-0 text-center text-xs text-slate-400">${i + 1}</span>
+        <div class="min-w-0 flex-1">
+            <p class="truncate font-mono text-[13px] font-medium text-slate-800">${esc(r.address)}</p>
+            <p class="mt-0.5 truncate text-xs text-slate-600">${ooWhereHtml(r)}</p>
+            <p class="mt-0.5 truncate font-mono text-[11px] text-slate-400">${ooSamplesHtml(r)}</p>
+        </div>
+        <div class="shrink-0 text-right">
+            <p class="font-mono text-sm font-semibold ${ooLatencyColor(r.latency, ooState.timeout)}">${r.latency} ms</p>
+            <p class="mt-0.5 text-xs ${ooLossColor(r.loss)}">丢包 ${r.loss}%</p>
+        </div>
+    </div>`).join('') || `<div class="px-4 py-12 text-center text-sm text-slate-400">${empty}</div>`;
+    $('oo-result-count').textContent = `${sorted.length} 个可用`;
+    $('oo-isp').textContent = ooState.isp ? `线路：${ooState.isp}` : '';
+}
+
+function ooSetProgress(done, total, text) {
+    ooState.progress = { done, total, text };
+    if (!ooMounted()) return;
+    $('oo-progress-wrap').classList.remove('hidden');
+    $('oo-progress-text').textContent = `${done} / ${total}`;
+    $('oo-progress-bar').style.width = total ? Math.round(done / total * 100) + '%' : '0%';
+    $('oo-progress-status').textContent = text;
+}
+
+// 按运行状态切换：开始 / 停止按钮、导入按钮、入库栏（有结果且未在运行时显示）
+function ooSyncControls() {
+    if (!ooMounted()) return;
+    $('oo-start').classList.toggle('hidden', ooState.running);
+    $('oo-stop').classList.toggle('hidden', !ooState.running);
+    $('oo-import').disabled = ooState.running;
+    const showFooter = !ooState.running && ooState.results.length > 0;
+    $('oo-footer').classList.toggle('hidden', !showFooter);
+    if (showFooter) ooUpdateQualified();
 }
 
 function ooUpdateEditorCount() {
-    const value = document.getElementById('oo-editor').value;
-    document.getElementById('oo-line-count').textContent = `${value.length ? value.split(/\r\n|\r|\n/).length : 0} 行`;
+    if (!ooMounted()) return;
+    const value = $('oo-editor').value;
+    $('oo-line-count').textContent = `${value.length ? value.split(/\r\n|\r|\n/).length : 0} 行`;
 }
 
-function ooClearEditor() {
-    document.getElementById('oo-editor').value = '';
+function ooSetEditor(text) {
+    ooState.form['oo-editor'] = text;
+    if (!ooMounted()) return;
+    $('oo-editor').value = text;
     ooUpdateEditorCount();
+}
+
+function ooSetImportStatus(text) {
+    ooState.importStatus = text;
+    if (ooMounted()) $('oo-import-status').textContent = text;
 }
 
 // ---------- ① IP 库导入 ----------
 async function ooImportLibrary() {
     if (ooState.running) return;
-    const pool = document.getElementById('oo-pool').value;
-    const btn = document.getElementById('oo-import');
-    const status = document.getElementById('oo-import-status');
+    const btn = $('oo-import');
     btn.disabled = true;
     btn.textContent = '导入中…';
-    status.textContent = '';
+    ooSetImportStatus('');
     try {
-        const data = await ipsApi.pool(pool);
-        document.getElementById('oo-editor').value = (data.lines || []).join('\n');
-        ooUpdateEditorCount();
-        status.textContent = `已导入「${data.name}」 ${(data.lines || []).length} 行`;
+        const data = await ipsApi.pool($('oo-pool').value);
+        const lines = data.lines || [];
+        ooSetEditor(lines.join('\n'));
+        ooSetImportStatus(`已导入「${data.name}」 ${lines.length} 行`);
     } catch (e) {
-        status.textContent = `导入失败：${e.message}`;
+        ooSetImportStatus(`导入失败：${e.message}`);
     } finally {
-        btn.disabled = false;
-        btn.textContent = '⬇️ IP 库导入';
+        if (ooMounted()) {
+            $('oo-import').disabled = ooState.running;
+            $('oo-import').textContent = '导入';
+        }
     }
 }
 
 // ---------- ② 开始优选 ----------
 async function ooStart() {
     if (ooState.running) return;
-    const timeout = Math.max(100, Math.min(10000, +document.getElementById('oo-timeout').value || 500));
-    const limit = Math.max(1, Math.min(2000, +document.getElementById('oo-limit').value || 128));
-    const concurrency = Math.max(1, Math.min(32, +document.getElementById('oo-concurrency').value || 16));
-    const port = Math.max(0, +document.getElementById('oo-port').value || 0);
+    const timeout = Math.max(100, Math.min(10000, +$('oo-timeout').value || 500));
+    const limit = Math.max(1, Math.min(2000, +$('oo-limit').value || 128));
+    const concurrency = Math.max(1, Math.min(32, +$('oo-concurrency').value || 16));
+    const port = Math.max(0, +$('oo-port').value || 0);
 
-    const candidates = ooPrepareCandidates(document.getElementById('oo-editor').value, limit, port);
+    const candidates = ooPrepareCandidates($('oo-editor').value, limit, port);
     if (!candidates.length) {
-        alert('待选列表为空或格式不符合要求，请先「IP 库导入」或手动粘贴 IP / CIDR');
+        toast('待选列表为空或格式不符合要求，请先导入 IP 库或手动粘贴 IP / CIDR', 'error');
         return;
     }
 
@@ -481,13 +527,9 @@ async function ooStart() {
     ooState.stopped = false;
     ooState.results = [];
     ooState.cursor = 0;
-    const toggleButtons = running => {
-        document.getElementById('oo-start').classList.toggle('hidden', running);
-        document.getElementById('oo-stop').classList.toggle('hidden', !running);
-    };
-    toggleButtons(true);
-    document.getElementById('oo-footer').classList.add('hidden');
-    document.getElementById('oo-footer').classList.remove('flex');
+    ooState.timeout = timeout;
+    $('oo-goto-pool').classList.add('hidden');
+    ooSyncControls();
     ooRerender();
 
     // 解析优选探测域名；locations 若尚未就绪则并行补拉（失败不影响测速）
@@ -495,7 +537,8 @@ async function ooStart() {
         ooSetProgress(0, 0, '解析探测域名…');
         if (!await ooEnsureHost()) {
             ooState.running = false;
-            toggleButtons(false);
+            ooSyncControls();
+            ooRerender();
             if (ooState.stopped) { ooSetProgress(0, 0, '已停止'); return; }
             ooSetProgress(0, 0, '探测域名不可达');
             alert('探测域名不可达：当前网络可能不在 CN 直连环境或无法访问 HiDNS 优选域名，无法进行在线优选。');
@@ -531,14 +574,8 @@ async function ooStart() {
     paint(true);
     for (const c of ooState.controllers) c.abort();
     ooState.controllers.clear();
-    toggleButtons(false);
     ooSetProgress(done, candidates.length, (ooState.stopped ? '已停止 · ' : '优选完成 · ') + summary());
-
-    if (ooState.results.length) {
-        document.getElementById('oo-footer').classList.remove('hidden');
-        document.getElementById('oo-footer').classList.add('flex');
-        ooUpdateQualified();
-    }
+    ooSyncControls();
 }
 
 function ooStop() {
@@ -549,9 +586,9 @@ function ooStop() {
 // ---------- ③ 达标入库 ----------
 // 达标 = 延迟 ≤ 入库阈值 且 丢包 ≤ 上限；IP 池只存 IP（不含端口），同一 IP 多端口只保留最优的一条
 function ooQualified() {
-    const threshold = +document.getElementById('oo-threshold').value || 300;
-    const maxLoss = +document.getElementById('oo-max-loss').value;
-    const limit = +document.getElementById('oo-save-limit').value || 20;
+    const threshold = +$('oo-threshold').value || 300;
+    const maxLoss = +$('oo-max-loss').value;
+    const limit = +$('oo-save-limit').value || 20;
     const best = new Map();
     for (const r of ooState.results) {
         if (r.latency > threshold || r.loss > maxLoss) continue;
@@ -565,8 +602,8 @@ function ooQualified() {
 // 调整入库条件 → 刷新计数，并允许再次入库
 function ooUpdateQualified() {
     const { all, picked } = ooQualified();
-    document.getElementById('oo-qualified').textContent = `（达标 ${all.length} 个，将入库 ${picked.length} 个）`;
-    const btn = document.getElementById('oo-save');
+    $('oo-qualified').textContent = `达标 ${all.length} 个 · 将入库 ${picked.length} 个`;
+    const btn = $('oo-save');
     btn.disabled = false;
     btn.textContent = '达标入库';
 }
@@ -585,166 +622,155 @@ async function ooSave() {
     });
     if (!entries.length) { toast('没有达标的 IP，可放宽延迟或丢包条件', 'error'); return; }
 
-    const btn = document.getElementById('oo-save');
+    const btn = $('oo-save');
     btn.disabled = true; btn.textContent = '入库中…';
     try {
         const data = await ipsApi.latencyBatch(entries);
-        btn.textContent = '✓ 已入库';
-        toast(`已入库 ${data.saved} 个 IP（含延迟与地区备注），可直接到「优选生成」使用`);
-        // 刷新弹窗下方的 IP 池表格（动态导入避免与 preferredIps.js 循环依赖）
-        const { refreshTable } = await import('./preferredIps.js');
-        await refreshTable();
+        toast(`已入库 ${data.saved} 个 IP（含延迟与地区备注）`);
+        if (!ooMounted()) return;
+        $('oo-save').textContent = '✓ 已入库';
+        $('oo-goto-pool').classList.remove('hidden');
     } catch (e) {
         toast('入库失败：' + e.message, 'error');
-        btn.disabled = false; btn.textContent = '达标入库';
+        if (ooMounted()) { $('oo-save').disabled = false; $('oo-save').textContent = '达标入库'; }
     }
 }
 
-// ---------- 弹窗 ----------
-export function openOnlineOptimize() {
-    let modal = document.getElementById('oo-modal');
-    if (!modal) {
-        document.body.insertAdjacentHTML('beforeend', ooModalHtml());
-        bindOoEvents();
-        modal = document.getElementById('oo-modal');
+// ---------- 页面 ----------
+export async function renderOptimize(container) {
+    container.innerHTML = ooPageHtml();
+    // 还原离开前的输入（含待选列表）、导入状态、进度与结果
+    for (const [id, value] of Object.entries(ooState.form)) {
+        const el = $(id);
+        if (el) el.value = value;
     }
-    modal.classList.remove('hidden');
-    modal.classList.add('flex');
-    document.body.style.overflow = 'hidden';
+    ooUpdateEditorCount();
+    $('oo-import-status').textContent = ooState.importStatus;
+    if (ooState.progress.text) ooSetProgress(ooState.progress.done, ooState.progress.total, ooState.progress.text);
+    ooRerender();
+    ooSyncControls();
+    bindOoEvents();
     ooEnsureHost().catch(() => {});
     ooLoadLocations().catch(() => {});
 }
 
-function closeOnlineOptimize() {
-    if (ooState.running && !confirm('优选正在进行，确定关闭？')) return;
-    ooStop();
-    const modal = document.getElementById('oo-modal');
-    modal.classList.add('hidden');
-    modal.classList.remove('flex');
-    document.body.style.overflow = '';
-}
-
-function ooModalHtml() {
+function ooPageHtml() {
+    const field = (label, control) => `<label class="block min-w-0"><span class="mb-1 block text-xs font-medium text-slate-500">${label}</span>${control}</label>`;
+    const input = 'w-full rounded-lg border-slate-200 text-sm shadow-sm';
+    const pools = [
+        ['cf-v4', 'CF官方列表v4'], ['cf-v6', 'CF官方列表v6'], ['cm-v4', 'CM优选列表v4'],
+        ['as13335-v4', 'AS13335列表v4'], ['as13335-v6', 'AS13335列表v6'],
+        ['as209242-v4', 'AS209242列表v4'], ['as209242-v6', 'AS209242列表v6'], ['local', '当前 IP 池'],
+    ];
     return `
-    <div id="oo-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
-        <div class="mx-auto flex h-[calc(100vh-2rem)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
-            <div class="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-                <h2 class="text-base font-semibold text-slate-900">⚡ 浏览器测速优选</h2>
-                <button type="button" data-oo-close class="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700">✕</button>
-            </div>
-            <div class="flex flex-wrap items-end gap-3 border-b border-slate-100 bg-slate-50/60 px-6 py-4">
-                <div>
-                    <label class="mb-1 block text-xs font-medium text-slate-500">候选 IP 库</label>
-                    <select id="oo-pool" class="rounded-lg border-slate-200 text-sm shadow-sm">
-                        <option value="cf-v4">CF官方列表v4</option>
-                        <option value="cf-v6">CF官方列表v6</option>
-                        <option value="cm-v4">CM优选列表v4</option>
-                        <option value="as13335-v4">AS13335列表v4</option>
-                        <option value="as13335-v6">AS13335列表v6</option>
-                        <option value="as209242-v4">AS209242列表v4</option>
-                        <option value="as209242-v6">AS209242列表v6</option>
-                        <option value="local">当前 IP 池</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="mb-1 block text-xs font-medium text-slate-500">优选端口</label>
-                    <select id="oo-port" class="rounded-lg border-slate-200 text-sm shadow-sm">
-                        ${[443, 2053, 2083, 2087, 2096, 8443].map(p => `<option value="${p}" ${p === 443 ? 'selected' : ''}>${p}</option>`).join('')}
-                    </select>
-                </div>
-                <div>
-                    <label class="mb-1 block text-xs font-medium text-slate-500">待选数量上限</label>
-                    <input type="number" id="oo-limit" value="128" min="1" max="2000" class="w-20 rounded-lg border-slate-200 text-sm shadow-sm">
-                </div>
-                <div>
-                    <label class="mb-1 block text-xs font-medium text-slate-500">并发</label>
-                    <input type="number" id="oo-concurrency" value="16" min="1" max="32" class="w-16 rounded-lg border-slate-200 text-sm shadow-sm">
-                </div>
-                <div>
-                    <label class="mb-1 block text-xs font-medium text-slate-500">超时 ms</label>
-                    <input type="number" id="oo-timeout" value="500" min="100" max="10000" step="100" class="w-20 rounded-lg border-slate-200 text-sm shadow-sm">
-                </div>
-                <div class="flex items-center gap-2 pb-0.5">
-                    <button type="button" id="oo-import" class="rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs font-medium text-indigo-600 transition hover:bg-indigo-50">⬇️ IP 库导入</button>
-                    <button type="button" id="oo-clear" class="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50">清空</button>
-                    <button type="button" id="oo-start" class="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white shadow-sm shadow-indigo-600/20 transition hover:bg-indigo-500">开始优选</button>
-                    <button type="button" id="oo-stop" class="hidden rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50">停止</button>
-                </div>
-                <p id="oo-import-status" class="w-full text-xs text-slate-500"></p>
-            </div>
-            <div class="border-b border-slate-100 px-6 py-3">
-                <p class="mb-1.5 text-xs font-medium text-slate-500">待选列表（支持 <code class="rounded bg-slate-100 px-1 font-mono">IP</code> / <code class="rounded bg-slate-100 px-1 font-mono">IP:端口</code> / <code class="rounded bg-slate-100 px-1 font-mono">[IPv6]:端口</code> / <code class="rounded bg-slate-100 px-1 font-mono">CIDR</code> / <code class="rounded bg-slate-100 px-1 font-mono">IP区间</code>，每行一个）</p>
-                <textarea id="oo-editor" rows="6" spellcheck="false"
-                          placeholder="选择 IP 库后点击「IP 库导入」自动填充，也可手动粘贴。示例：&#10;104.16.1.1&#10;104.16.2.2:8443&#10;[2606:4700::]:443&#10;103.22.200.0/22&#10;162.159.152.0-162.159.153.255"
-                          class="w-full rounded-lg border-slate-200 font-mono text-xs leading-5 shadow-sm focus:border-indigo-400 focus:ring-indigo-100"></textarea>
-                <div class="mt-1 flex items-center justify-between">
+    <div id="oo-page" class="space-y-4 sm:space-y-6">
+        <div class="grid grid-cols-1 gap-4 sm:gap-6 xl:grid-cols-3">
+            <section class="rounded-xl border border-slate-200/80 bg-white shadow-sm xl:col-span-2">
+                <div class="flex items-center justify-between border-b border-slate-100 px-4 py-3 sm:px-5 sm:py-4">
+                    <h2 class="text-sm font-semibold text-slate-900">① 候选 IP</h2>
                     <span id="oo-line-count" class="text-xs text-slate-400">0 行</span>
-                    <span class="text-xs text-slate-400">每个 IP 建连后采样 ${OO_SAMPLES} 次：延迟取最低值，超时或重传毛刺计丢包；CIDR / 区间每轮重新随机取样</span>
                 </div>
-            </div>
-            <div id="oo-progress-wrap" class="hidden px-6 pt-4">
-                <div class="flex items-center justify-between text-xs text-slate-500">
-                    <span>进度：<b id="oo-progress-text" class="text-slate-800">0 / 0</b></span>
-                    <span id="oo-progress-status"></span>
+                <div class="space-y-3 px-4 py-4 sm:px-5">
+                    <div class="flex gap-2">
+                        <select id="oo-pool" class="min-w-0 flex-1 rounded-lg border-slate-200 text-sm shadow-sm">
+                            ${pools.map(([v, l]) => `<option value="${v}">${l}</option>`).join('')}
+                        </select>
+                        <button type="button" id="oo-import" class="shrink-0 rounded-lg border border-indigo-200 bg-white px-4 py-2 text-sm font-medium text-indigo-600 transition hover:bg-indigo-50 disabled:opacity-50">导入</button>
+                        <button type="button" id="oo-clear" class="shrink-0 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50">清空</button>
+                    </div>
+                    <p id="oo-import-status" class="text-xs text-slate-500 empty:hidden"></p>
+                    <textarea id="oo-editor" rows="6" spellcheck="false"
+                              placeholder="选择 IP 库后点「导入」自动填充，也可手动粘贴。示例：&#10;104.16.1.1&#10;104.16.2.2:8443&#10;[2606:4700::]:443&#10;103.22.200.0/22&#10;162.159.152.0-162.159.153.255"
+                              class="w-full rounded-lg border-slate-200 font-mono text-xs leading-5 shadow-sm"></textarea>
+                    <p class="text-xs leading-relaxed text-slate-400">每行一个：IP / IP:端口 / [IPv6]:端口 / CIDR / IP 区间；CIDR 与区间每轮重新随机取样</p>
                 </div>
-                <div class="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-                    <div id="oo-progress-bar" class="h-full rounded-full bg-indigo-500 transition-all" style="width:0%"></div>
+            </section>
+
+            <section class="flex flex-col rounded-xl border border-slate-200/80 bg-white shadow-sm">
+                <div class="border-b border-slate-100 px-4 py-3 sm:px-5 sm:py-4">
+                    <h2 class="text-sm font-semibold text-slate-900">② 测速参数</h2>
                 </div>
-            </div>
-            <div class="min-h-0 flex-1 overflow-y-auto px-6 py-4">
-                <div class="mb-2 flex items-center justify-between">
-                    <h3 class="text-sm font-semibold text-slate-900">优选结果</h3>
+                <div class="grid flex-1 grid-cols-2 content-start gap-3 px-4 py-4 sm:grid-cols-4 sm:px-5 xl:grid-cols-2">
+                    ${field('端口', `<select id="oo-port" class="${input}">${OO_RANDOM_PORTS.map(p => `<option value="${p}">${p}</option>`).join('')}</select>`)}
+                    ${field('候选数量上限', `<input type="number" id="oo-limit" value="128" min="1" max="2000" inputmode="numeric" class="${input}">`)}
+                    ${field('并发', `<input type="number" id="oo-concurrency" value="16" min="1" max="32" inputmode="numeric" class="${input}">`)}
+                    ${field('超时 ms', `<input type="number" id="oo-timeout" value="500" min="100" max="10000" step="100" inputmode="numeric" class="${input}">`)}
+                    <p class="col-span-full text-xs leading-relaxed text-slate-400">每个 IP 建连后采样 ${OO_SAMPLES} 次：延迟取最低值，超时或重传毛刺计丢包</p>
+                </div>
+                <div class="border-t border-slate-100 px-4 py-3 sm:px-5">
+                    <button type="button" id="oo-start" class="w-full rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm shadow-indigo-600/20 transition hover:bg-indigo-500">开始优选</button>
+                    <button type="button" id="oo-stop" class="hidden w-full rounded-lg border border-slate-200 bg-white px-5 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50">停止</button>
+                </div>
+            </section>
+        </div>
+
+        <section class="rounded-xl border border-slate-200/80 bg-white shadow-sm">
+            <div class="border-b border-slate-100 px-4 py-3 sm:px-5 sm:py-4">
+                <div class="flex items-center justify-between gap-2">
+                    <h2 class="text-sm font-semibold text-slate-900">③ 优选结果</h2>
                     <div class="flex items-center gap-2">
                         <span id="oo-isp" class="text-xs text-slate-400"></span>
                         <span id="oo-result-count" class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500">0 个可用</span>
                     </div>
                 </div>
+                <div id="oo-progress-wrap" class="mt-3 hidden">
+                    <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-slate-500">
+                        <span>进度 <b id="oo-progress-text" class="font-mono text-slate-800">0 / 0</b></span>
+                        <span id="oo-progress-status"></span>
+                    </div>
+                    <div class="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                        <div id="oo-progress-bar" class="h-full rounded-full bg-indigo-500 transition-all" style="width:0%"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="hidden overflow-x-auto sm:block">
                 <table class="w-full text-sm">
-                    <thead class="sticky top-0 bg-white">
+                    <thead>
                         <tr class="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400">
-                            <th class="py-2.5 pr-4 font-medium">#</th>
+                            <th class="py-2.5 pl-5 pr-4 font-medium">#</th>
                             <th class="py-2.5 pr-4 font-medium">IP:端口</th>
                             <th class="py-2.5 pr-4 font-medium">数据中心</th>
                             <th class="py-2.5 pr-4 font-medium">延迟</th>
                             <th class="py-2.5 pr-4 font-medium">丢包</th>
-                            <th class="py-2.5 font-medium">采样 ms</th>
+                            <th class="py-2.5 pr-5 font-medium">采样 ms</th>
                         </tr>
                     </thead>
-                    <tbody id="oo-results">
-                        <tr><td colspan="6" class="py-10 text-center text-sm text-slate-400">先导入候选，再点击开始优选</td></tr>
-                    </tbody>
+                    <tbody id="oo-results" class="divide-y divide-slate-50"></tbody>
                 </table>
             </div>
-            <div id="oo-footer" class="hidden items-center justify-between gap-3 border-t border-slate-100 bg-slate-50/60 px-6 py-3">
-                <div class="flex flex-wrap items-center gap-3 text-xs text-slate-500">
-                    <span>入库条件：延迟 ≤</span>
-                    <input type="number" id="oo-threshold" value="500" min="20" step="20" class="w-20 rounded-lg border-slate-200 py-1 text-sm shadow-sm">
-                    <span>ms，丢包 ≤</span>
-                    <input type="number" id="oo-max-loss" value="40" min="0" max="100" step="20" class="w-16 rounded-lg border-slate-200 py-1 text-sm shadow-sm">
-                    <span>%，取前</span>
-                    <input type="number" id="oo-save-limit" value="20" min="1" max="200" class="w-16 rounded-lg border-slate-200 py-1 text-sm shadow-sm">
-                    <span>个</span>
-                    <span id="oo-qualified" class="font-medium text-slate-700"></span>
+            <div id="oo-results-m" class="divide-y divide-slate-50 sm:hidden"></div>
+        </section>
+
+        <div id="oo-footer" class="sticky bottom-3 z-10 hidden rounded-xl border border-slate-200 bg-white/95 p-3 shadow-lg backdrop-blur sm:bottom-4 sm:p-4">
+            <div class="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                <div class="grid grid-cols-3 gap-2 sm:flex sm:gap-3">
+                    ${field('延迟 ≤ ms', `<input type="number" id="oo-threshold" value="500" min="20" step="20" inputmode="numeric" class="${input} sm:w-28">`)}
+                    ${field('丢包 ≤ %', `<input type="number" id="oo-max-loss" value="40" min="0" max="100" step="20" inputmode="numeric" class="${input} sm:w-28">`)}
+                    ${field('入库数量', `<input type="number" id="oo-save-limit" value="20" min="1" max="200" inputmode="numeric" class="${input} sm:w-28">`)}
                 </div>
-                <button type="button" id="oo-save" class="rounded-lg bg-emerald-600 px-5 py-2 text-sm font-medium text-white shadow-sm shadow-emerald-600/20 transition hover:bg-emerald-500">达标入库</button>
+                <div class="flex items-center justify-between gap-3">
+                    <div class="min-w-0 text-xs">
+                        <p id="oo-qualified" class="font-medium text-slate-700"></p>
+                        <a id="oo-goto-pool" href="#/preferred-ips" class="hidden font-medium text-indigo-600 hover:text-indigo-500">去 IP 池查看 →</a>
+                    </div>
+                    <button type="button" id="oo-save" class="shrink-0 rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white shadow-sm shadow-emerald-600/20 transition hover:bg-emerald-500 disabled:opacity-70">达标入库</button>
+                </div>
             </div>
-            <p class="px-6 pb-3 text-[11px] text-slate-400">© 在线优选基于 <a href="https://github.com/cmliu/edgetunnel" target="_blank" rel="noopener" class="underline hover:text-slate-600">cmliu/edgetunnel</a> 与 BestCF 的思路实现 · 感谢开源社区与巨人的肩膀</p>
         </div>
+
+        <p class="text-center text-[11px] text-slate-400">© 在线优选基于 <a href="https://github.com/cmliu/edgetunnel" target="_blank" rel="noopener" class="underline hover:text-slate-600">cmliu/edgetunnel</a> 与 BestCF 的思路实现 · 感谢开源社区与巨人的肩膀</p>
     </div>`;
 }
 
 function bindOoEvents() {
-    document.getElementById('oo-modal').addEventListener('click', (e) => {
-        if (e.target.id === 'oo-modal') closeOnlineOptimize();
-        if (e.target.closest('[data-oo-close]')) closeOnlineOptimize();
-    });
-    document.getElementById('oo-import').addEventListener('click', ooImportLibrary);
-    document.getElementById('oo-clear').addEventListener('click', ooClearEditor);
-    document.getElementById('oo-start').addEventListener('click', ooStart);
-    document.getElementById('oo-stop').addEventListener('click', ooStop);
-    document.getElementById('oo-editor').addEventListener('input', ooUpdateEditorCount);
-    document.getElementById('oo-save').addEventListener('click', ooSave);
-    document.getElementById('oo-threshold').addEventListener('input', ooUpdateQualified);
-    document.getElementById('oo-max-loss').addEventListener('input', ooUpdateQualified);
-    document.getElementById('oo-save-limit').addEventListener('input', ooUpdateQualified);
+    const page = $('oo-page');
+    // 输入值存进 ooState.form，离开页面再回来时还原
+    page.addEventListener('input', (e) => { if (e.target.id) ooState.form[e.target.id] = e.target.value; });
+    $('oo-import').addEventListener('click', ooImportLibrary);
+    $('oo-clear').addEventListener('click', () => ooSetEditor(''));
+    $('oo-start').addEventListener('click', ooStart);
+    $('oo-stop').addEventListener('click', ooStop);
+    $('oo-editor').addEventListener('input', ooUpdateEditorCount);
+    $('oo-save').addEventListener('click', ooSave);
+    ['oo-threshold', 'oo-max-loss', 'oo-save-limit'].forEach(id => $(id).addEventListener('input', ooUpdateQualified));
 }

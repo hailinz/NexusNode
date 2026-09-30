@@ -17,6 +17,7 @@ export async function renderGenerate(container) {
         rootEl.innerHTML = `
         <div class="rounded-xl border border-slate-200/80 bg-white px-5 py-16 text-center shadow-sm">
             <p class="text-sm text-slate-400">没有可作为模板的节点（需要 443 端口且地址与 SNI 一致）。先在「批量导入」导入 CF 节点</p>
+            <a href="#/imports" class="mt-3 inline-block rounded-lg bg-indigo-600 px-4 py-2 text-xs font-medium text-white hover:bg-indigo-500">去批量导入</a>
         </div>`;
         return;
     }
@@ -35,9 +36,9 @@ export async function renderGenerate(container) {
             <div class="rounded-xl border border-slate-200/80 bg-white shadow-sm xl:col-span-3">
                 <div class="flex items-center justify-between border-b border-slate-100 px-5 py-4">
                     <h2 class="text-sm font-semibold text-slate-900">① 选择模板节点 <span class="ml-1 text-xs font-normal text-slate-400">（保留 SNI / Host / Path，仅替换地址）</span></h2>
-                    <button type="button" data-checkall="node_ids" class="text-xs font-medium text-indigo-600 hover:text-indigo-500">全选 / 反选</button>
+                    <button type="button" data-checkall="node_ids" class="-mr-2 shrink-0 rounded-md px-2 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 hover:text-indigo-500">全选 / 反选</button>
                 </div>
-                <div class="max-h-[480px] divide-y divide-slate-50 overflow-y-auto">
+                <div class="max-h-[45vh] divide-y sm:max-h-[480px] divide-slate-50 overflow-y-auto">
                     ${data.templates.map(t => `
                         <label class="flex cursor-pointer items-center gap-3 px-5 py-3 transition hover:bg-slate-50/70">
                             <input type="checkbox" name="node_ids" value="${t.id}" class="gen-node h-4 w-4 rounded border-slate-300 text-indigo-600">
@@ -56,9 +57,9 @@ export async function renderGenerate(container) {
             <div class="rounded-xl border border-slate-200/80 bg-white shadow-sm xl:col-span-2">
                 <div class="flex items-center justify-between border-b border-slate-100 px-5 py-4">
                     <h2 class="text-sm font-semibold text-slate-900">② 选择优选 IP</h2>
-                    <button type="button" data-checkall="ip_ids" class="text-xs font-medium text-indigo-600 hover:text-indigo-500">全选 / 反选</button>
+                    <button type="button" data-checkall="ip_ids" class="-mr-2 shrink-0 rounded-md px-2 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-50 hover:text-indigo-500">全选 / 反选</button>
                 </div>
-                <div class="max-h-[480px] divide-y divide-slate-50 overflow-y-auto">
+                <div class="max-h-[45vh] divide-y sm:max-h-[480px] divide-slate-50 overflow-y-auto">
                     ${data.ips.map(ip => `
                         <label class="flex cursor-pointer items-center gap-3 px-5 py-3 transition hover:bg-slate-50/70">
                             <input type="checkbox" name="ip_ids" value="${ip.id}" class="gen-ip h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-100">
