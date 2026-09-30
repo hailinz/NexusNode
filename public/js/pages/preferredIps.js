@@ -1,7 +1,7 @@
 // ==================== CF 优选 IP 页 ====================
 import { ipsApi, sourcesApi } from '../api.js';
 import { esc, toast, confirmBox, readFileText, latencyClass, formatTime } from '../utils.js';
-import { openOnlineOptimize } from './onlineOptimize.js';
+import { openOnlineOptimize, measureIp } from './onlineOptimize.js';
 
 let rootEl = null;
 const state = {
@@ -76,7 +76,7 @@ export async function renderPreferredIps(container) {
 
     <div class="mt-6 rounded-xl border border-slate-200/80 bg-white shadow-sm">
         <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/60 px-5 py-3">
-            <p class="text-xs text-slate-400">浏览器直连测<b class="font-medium text-slate-600">延迟</b>与<b class="font-medium text-slate-600">丢包率</b>（多轮探测取平均，失败率计丢包）</p>
+            <p class="text-xs text-slate-400">浏览器测<b class="font-medium text-slate-600">延迟</b>与<b class="font-medium text-slate-600">丢包率</b>（建连后多轮采样：延迟取最低值，超时或重传计丢包，与测速优选同口径）</p>
             <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
                 <label class="flex items-center gap-1">轮数
                     <input type="number" id="pi-rounds" value="4" min="1" max="10" class="w-12 rounded-md border-slate-200 py-1 text-xs shadow-sm"></label>
@@ -194,7 +194,9 @@ function renderTable() {
             <td class="py-3 pl-5 pr-2"><input type="checkbox" value="${esc(ip.ip)}" class="pi-check rounded border-slate-300 text-indigo-600" ${state.checked.has(ip.ip) ? 'checked' : ''}></td>
             <td class="px-4 py-3 font-mono text-xs font-medium text-slate-800">${esc(ip.ip)}</td>
             <td class="px-4 py-3 text-xs text-slate-600">${esc(ip.remarks || '—')}</td>
-            <td class="pi-latency px-4 py-3 text-xs">${ip.latency_ms !== null ? `<span class="${latencyClass(ip.latency_ms)}">${ip.latency_ms} ms</span>` : '<span class="text-slate-300">—</span>'}</td>
+            <td class="pi-latency px-4 py-3 text-xs">${ip.loss_rate === 100
+                ? '<span class="text-slate-400">不可达</span>' // 最近一次测速全部失败：库里保留的是旧延迟，不再展示
+                : (ip.latency_ms !== null ? `<span class="${latencyClass(ip.latency_ms)}">${ip.latency_ms} ms</span>` : '<span class="text-slate-300">—</span>')}</td>
             <td class="px-4 py-3 text-xs text-slate-600">${ip.loss_rate !== null ? ip.loss_rate.toFixed(2) + '%' : '—'}</td>
             <td class="px-4 py-3 text-xs text-slate-600">${ip.download_speed !== null ? ip.download_speed.toFixed(2) + ' MB/s' : '—'}</td>
             <td class="px-4 py-3 font-mono text-xs text-slate-500">${esc(formatTime(ip.created_at, false))}</td>
@@ -209,7 +211,7 @@ function renderTable() {
     }));
 }
 
-async function refreshTable() {
+export async function refreshTable() {
     const data = await ipsApi.list({ sort: state.sort, dir: state.dir });
     state.data = data.ips;
     if (rootEl) renderTable();
@@ -373,8 +375,12 @@ async function piProbe(ip, timeout) {
     }
 }
 
-// 多轮探测单个 IP：平均延迟 + 丢包率
+// 单个 IP 测速：优先复用「浏览器测速优选」的探测（建连后多轮采样，延迟取最低值、超时或重传计丢包），
+// 与优选入库的数值同口径；探测域名不可用时降级为直连 IP 多轮探测取平均
 async function piTestOne(ip) {
+    const m = await measureIp(ip, state.rounds, state.timeout, () => state.stopped);
+    if (m) return state.stopped ? null : { ip, ...m };
+
     const latencies = [];
     let fail = 0;
     for (let i = 0; i < state.rounds; i++) {
@@ -422,7 +428,7 @@ async function piRun(trs) {
             if (m) {
                 tr.querySelector('.pi-latency').innerHTML = m.latency_ms !== null
                     ? `<span class="${latencyClass(m.latency_ms)}">${m.latency_ms} ms</span>`
-                    : '<span class="text-slate-400">超时</span>';
+                    : '<span class="text-slate-400">不可达</span>';
                 const entry = state.data.find(d => d.ip === m.ip);
                 if (entry) {
                     if (m.latency_ms !== null) entry.latency_ms = m.latency_ms;

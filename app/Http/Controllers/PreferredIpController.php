@@ -179,7 +179,8 @@ class PreferredIpController extends Controller
     }
 
     /**
-     * 在线优选：浏览器测得的延迟批量入库（仅更新延迟，备注等原值保留）
+     * 在线优选：浏览器测得的延迟批量入库（仅更新延迟 / 丢包率，备注等原值保留）
+     * 可选 loss_rate：本轮采样的丢包率（%），不传则保留原值
      * 可选 remarks：仅在现有备注为空时写入（用于回填探测得到的「国家/数据中心」）
      */
     public function storeLatencyBatch(Request $request): JsonResponse
@@ -188,16 +189,20 @@ class PreferredIpController extends Controller
             'entries' => ['required', 'array', 'min:1', 'max:200'],
             'entries.*.ip' => ['required', 'string', 'max:64'],
             'entries.*.latency_ms' => ['required', 'numeric', 'min:1', 'max:10000'],
+            'entries.*.loss_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'entries.*.remarks' => ['nullable', 'string', 'max:255'],
         ]);
 
         $saved = 0;
         foreach ($validated['entries'] as $entry) {
-            $ip = trim($entry['ip']);
-            if (!filter_var(trim($ip, '[]'), FILTER_VALIDATE_IP)) {
+            $ip = trim($entry['ip'], " []"); // IPv6 去掉方括号，与 IP 池存储格式一致
+            if (!filter_var($ip, FILTER_VALIDATE_IP)) {
                 continue;
             }
             $data = ['latency_ms' => (float) $entry['latency_ms'], 'enabled' => true];
+            if (isset($entry['loss_rate'])) {
+                $data['loss_rate'] = (float) $entry['loss_rate'];
+            }
             $existing = PreferredIp::where('ip', $ip)->first();
             // 新建 IP 或现有备注为空时，回填探测得到的「国家/地区 · 数据中心」
             if ((!$existing || $existing->remarks === null) && !empty($entry['remarks'])) {

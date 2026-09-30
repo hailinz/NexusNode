@@ -184,6 +184,20 @@ class PreferredIpApiTest extends TestCase
         $this->assertTrue($fresh->enabled);
     }
 
+    public function test_延迟批量入库_IPv6去方括号且新建回填备注(): void
+    {
+        $res = $this->postJson('/api/v1/preferred-ips/latency-batch', [
+            'entries' => [['ip' => '[2606:4700::1]', 'latency_ms' => 170, 'loss_rate' => 20, 'remarks' => '电信 · US · SJC']],
+        ], $this->authHeaders())->assertOk();
+
+        $this->assertSame(1, $res->json('saved'));
+        $ip = PreferredIp::where('ip', '2606:4700::1')->first();
+        $this->assertNotNull($ip);
+        $this->assertSame('电信 · US · SJC', $ip->remarks);
+        $this->assertSame(170.0, $ip->latency_ms);
+        $this->assertSame(20.0, $ip->loss_rate);
+    }
+
     public function test_丢包率批量回写(): void
     {
         $this->makeIp('1.1.1.1');

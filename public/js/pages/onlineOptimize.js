@@ -1,13 +1,15 @@
 // ==================== 在线优选（BestCF 同款流程） ====================
 // ① IP 库导入：从本站代理拉取候选清单（IP / CIDR / IP 区间原始行）填入待选列表
 // ② 开始优选：CIDR/区间随机展开取样 → 对每个 IP:端口 构造 hex 标签域名
-//    https://{HEX|ipv6-label}.{best-host}:{port}/ip.json（SNI 钉住目标 IP），
-//    GET 响应耗时即延迟，响应体含 colo（数据中心 IATA 码）、cnIspCode（用户侧运营商）、ipType；
-//    机房国家由 colo 反查 locations 映射表；只有延迟 ≤ 超时值的 IP 进入结果列表（同 BestCF 的"超时即剔除"）
+//    https://{HEX|ipv6-label}.{best-host}:{port}/cdn-cgi/trace（DNS 解析到目标 IP，由 CF 边缘直接响应）：
+//    先建连（冷连接含 DNS+TCP+TLS，宽松超时），再在同一连接上采样 OO_SAMPLES 次：
+//    延迟 = 最低值（线路基础 RTT，可重复），丢包 = 超时或重传毛刺的占比（反映当前线路质量）。
+//    trace 响应含 colo（数据中心 IATA 码），机房国家由 colo 反查 locations；
+//    用户侧运营商（cnIspCode）对所有 IP 相同，解析探测域名时从 ip.json 取一次
 // ③ 达标入库：写回 IP 池（备注回填「运营商 · 国家 · 数据中心」，仅当原备注为空）
 
 import { api, ipsApi } from '../api.js';
-import { esc } from '../utils.js';
+import { esc, toast } from '../utils.js';
 
 const OO_BEST_HOSTS = ['bestcf.cmliussss.hidns.vip', 'ns.psb.kdns.fr'];
 const OO_DETECT_ENDPOINTS = {
@@ -24,10 +26,16 @@ const OO_RANDOM_PORTS = [443, 2053, 2083, 2087, 2096, 8443];
 const OO_HOST_CACHE_KEY = 'NexusNode:best-host';
 const OO_LOCATIONS_CACHE_KEY = 'NexusNode:locations';
 const OO_LOCATIONS_TTL_MS = 7 * 86400 * 1000; // 地理映射本地缓存 7 天
+// 同连接采样：链路丢包会触发 TCP 重传，单次采样出现 +200 / +600 / +1400ms 的指数退避毛刺
+// （实测 CN→CF 晚高峰约 25~40% 的请求，与 HTTP/1.1、HTTP/2、QUIC 无关）。
+// 5 次取最低值作延迟，只有 5 次全部重传才会偏高（<1%），两轮测速结果可重复；
+// 比最低值高出 OO_SPIKE_MS 以上即视为重传（TCP 重传超时下限 200ms，正常抖动远小于此）
+const OO_SAMPLES = 5;
+const OO_SPIKE_MS = 150;
 
 const ooState = {
     running: false, stopped: false, results: [], controllers: new Set(),
-    bestHost: '', locationsByIata: new Map(), cursor: 0,
+    bestHost: '', hostPromise: null, isp: '', locationsByIata: new Map(), cursor: 0,
 };
 
 // ---------- 工具函数（移植 cf.html） ----------
@@ -113,13 +121,31 @@ function ooBuildProbeUrl(parsed, path, params = {}) {
     return `https://${label}.${ooState.bestHost}:${parsed.port}/${path}?${search}`;
 }
 
-function ooFetchWithTimeout(url, { method = 'GET', timeout = 8000 } = {}) {
+function ooFetchWithTimeout(url, { timeout = 8000 } = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
     ooState.controllers.add(controller);
-    if (ooState.stopped) controller.abort();
-    return fetch(url, { method, cache: 'no-store', signal: controller.signal })
+    return fetch(url, { cache: 'no-store', signal: controller.signal })
         .finally(() => { clearTimeout(timer); ooState.controllers.delete(controller); });
+}
+
+// 单次 GET 计时：优先取 Resource Timing 的网络层耗时（不含主线程排队），取不到时退回墙钟。
+// 条目名是规范化 URL（主机名小写、默认端口 :443 去掉），须用 new URL().href 匹配。
+// 每个 IP 约 1 + 采样数个请求，默认 250 条的缓冲区很快写满：满了就清空（个别条目被清掉时退回墙钟）
+performance.addEventListener('resourcetimingbufferfull', () => performance.clearResourceTimings());
+
+async function ooTimedGet(url, timeout) {
+    const started = performance.now();
+    try {
+        const res = await ooFetchWithTimeout(url, { timeout });
+        if (res.status !== 200) return null;
+        const text = await res.text();
+        const wall = performance.now() - started;
+        const entry = performance.getEntriesByName(new URL(url).href).pop();
+        return { ms: Math.max(1, Math.round(entry?.duration || wall)), text };
+    } catch (e) {
+        return null;
+    }
 }
 
 function ooRandomBigIntBelow(max) {
@@ -220,23 +246,29 @@ function ooPrepareCandidates(rawText, limit, preferredPort) {
 }
 
 // ---------- best host 解析 + locations 加载 ----------
+// 上次可用的 host 优先验证；验证用的 ip.json 同时带回用户侧运营商（对本轮所有 IP 相同）
 async function ooResolveBestHost() {
-    try {
-        const cached = localStorage.getItem(OO_HOST_CACHE_KEY);
-        if (cached && OO_BEST_HOSTS.includes(cached)) { ooState.bestHost = cached; return true; }
-    } catch (e) { /* 嵌入环境可能禁用 storage */ }
+    let cached = '';
+    try { cached = localStorage.getItem(OO_HOST_CACHE_KEY) || ''; } catch (e) { /* 嵌入环境可能禁用 storage */ }
+    const hosts = OO_BEST_HOSTS.includes(cached) ? [cached, ...OO_BEST_HOSTS.filter(h => h !== cached)] : OO_BEST_HOSTS;
 
-    for (const host of OO_BEST_HOSTS) {
-        ooState.bestHost = host;
-        const endpoints = ooExpandWildcard(OO_DETECT_ENDPOINTS.ipv4.map(ep => ep.replace('{{host}}', host)));
+    for (const host of hosts) {
+        const endpoints = OO_DETECT_ENDPOINTS.ipv4.map(ep => ooExpandWildcard(ep.replace('{{host}}', host)));
         try {
-            await Promise.any(endpoints.map(ep => ooFetchWithTimeout(`${ep}/ip.json?_t=${Date.now()}`, { timeout: 6500 }).then(r => { if (r.status !== 200) throw new Error(); return r.json(); })));
+            const data = await Promise.any(endpoints.map(ep => ooFetchWithTimeout(`${ep}/ip.json?_t=${Date.now()}`, { timeout: 6500 }).then(r => { if (r.status !== 200) throw new Error(); return r.json(); })));
+            ooState.bestHost = host;
+            ooState.isp = ooIspFromCode(data.cnIspCode);
             try { localStorage.setItem(OO_HOST_CACHE_KEY, host); } catch (e) { /* ignore */ }
             return true;
         } catch (e) { /* 换下一个 host */ }
     }
-    ooState.bestHost = '';
     return false;
+}
+
+// 并发调用（打开弹窗预解析 + 点击开始）共用同一次解析；失败后允许下次重试
+async function ooEnsureHost() {
+    ooState.hostPromise ||= ooResolveBestHost().then(ok => { if (!ok) ooState.hostPromise = null; return ok; });
+    return ooState.hostPromise;
 }
 
 // locations（IATA → 机房国家映射）：打开弹窗时获取一次并缓存 localStorage（7 天），优选时直接使用。
@@ -265,9 +297,8 @@ async function ooLoadLocations() {
 
     // ③ 浏览器直连兜底：多端点竞速
     if (!ooState.bestHost) return false;
-    const endpoints = ooExpandWildcard(
-        [...OO_DETECT_ENDPOINTS.ipv4, ...OO_DETECT_ENDPOINTS.ipv6].map(ep => ep.replace('{{host}}', ooState.bestHost))
-    );
+    const endpoints = [...OO_DETECT_ENDPOINTS.ipv4, ...OO_DETECT_ENDPOINTS.ipv6]
+        .map(ep => ooExpandWildcard(ep.replace('{{host}}', ooState.bestHost)));
     try {
         const data = await Promise.any(endpoints.map(async ep => {
             const res = await ooFetchWithTimeout(`${ep}/locations?_t=${Date.now()}`, { timeout: 8000 });
@@ -295,40 +326,53 @@ function ooCountryFromColo(colo) {
     return match && match.cca2 ? match.cca2 : '未知';
 }
 
-// ---------- 单个地址探测（同 cf.html testLatency：OPTIONS 连通性 → GET ip.json 计时） ----------
-// ip.json 的 country 是「用户出口」所在国家（国内环境恒为 CN）；
-// 机房所在国家必须用 colo（边缘节点 IATA 码）反查 locations 映射表。
-// cnIspCode 是用户侧运营商识别，代表本次优选结果是在谁的线路下测得的。
+// ---------- 单个地址探测：建连 → 同连接多次采样（延迟取最低值，统计丢包） ----------
+// 返回 { status: 'ok' | 'slow' | 'fail', result? }
+//  - fail：建连失败（不可达 / 被阻断 / 非 CF 边缘）
+//  - slow：可达，但所有采样都超过超时阈值
+// 冷连接耗时 = DNS（每个 hex 标签都是新域名，实测 0.2~1.4s）+ TCP + TLS + 首个请求，实测 0.8~2.2s，
+// 不能拿来当延迟，也不能用延迟阈值卡它，否则会把「建连慢但线路好」的 IP 误判为不可达。
+async function ooMeasure(parsed, timeout, rounds, isStopped) {
+    const warm = await ooTimedGet(ooBuildProbeUrl(parsed, 'cdn-cgi/trace'), timeout * 2 + 3000);
+    if (!warm) return { status: 'fail' };
+
+    const samples = [];
+    for (let i = 0; i < rounds && !isStopped(); i++) {
+        const r = await ooTimedGet(ooBuildProbeUrl(parsed, 'cdn-cgi/trace'), timeout);
+        samples.push(r && r.ms <= timeout ? r.ms : null);
+    }
+    const ok = samples.filter(v => v !== null);
+    if (!ok.length) return { status: 'slow' };
+    const latency = Math.min(...ok);
+    const lost = samples.filter(v => v === null || v - latency > OO_SPIKE_MS).length;
+
+    return {
+        status: 'ok',
+        colo: (warm.text.match(/^colo=(\w+)/m) || [])[1] || '—',
+        latency,
+        loss: Math.round(lost / samples.length * 100),
+        samples,
+    };
+}
+
 async function ooTestAddress(address, timeout) {
     const parsed = ooParseAddressWithPort(address);
+    if (!parsed) return { status: 'fail' };
+    const { status, colo, latency, loss, samples } = await ooMeasure(parsed, timeout, OO_SAMPLES, () => ooState.stopped);
+    if (status !== 'ok') return { status };
+    // 入库用裸 IP（IPv6 不带方括号，与 IP 池存储格式一致）
+    return { status, result: { address, ip: parsed.ip, colo, latency, loss, samples } };
+}
+
+// IP 池列表测速复用同一套探测（固定 443 端口），保证与弹窗优选入库的延迟 / 丢包同口径。
+// 返回 { latency_ms, loss_rate }（不可达 / 全部超时：latency_ms = null、loss_rate = 100）；
+// 探测域名不可用时返回 null，由调用方降级为旧的直连探测。
+export async function measureIp(ip, rounds, timeout, isStopped) {
+    if (!await ooEnsureHost()) return null;
+    const parsed = ooParseAddressWithPort(ip.includes(':') ? `[${ip}]:443` : `${ip}:443`);
     if (!parsed) return null;
-    const url = ooBuildProbeUrl(parsed, 'ip.json');
-
-    let connected = false;
-    for (let attempt = 0; attempt < 3 && !connected && !ooState.stopped; attempt++) {
-        try {
-            const r = await ooFetchWithTimeout(url, { method: 'OPTIONS', timeout: timeout * 2 });
-            connected = r.ok || r.status > 0; // no-cors 语义下拿到响应即视为可达
-        } catch (e) { /* 重试 */ }
-    }
-    if (!connected) return null;
-
-    const started = performance.now();
-    const response = await ooFetchWithTimeout(url, { method: 'GET', timeout });
-    if (response.status !== 200) throw new Error('GET 不可用');
-    const data = await response.json();
-    const latency = Math.max(1, Math.round(performance.now() - started));
-    if (latency > timeout) return null; // 超时阈值之外的结果直接不显示（BestCF 行为）
-
-    const colo = data.colo || '';
-    return {
-        address,
-        ip: parsed.family === 'ipv4' ? parsed.ip : `[${parsed.ip}]`,
-        ipType: data.ipType === 'ipv6' ? 'IPv6' : 'IPv4',
-        colo: colo || '—',
-        isp: ooIspFromCode(data.cnIspCode),
-        latency,
-    };
+    const m = await ooMeasure(parsed, timeout, rounds, isStopped);
+    return m.status === 'ok' ? { latency_ms: m.latency, loss_rate: m.loss } : { latency_ms: null, loss_rate: 100 };
 }
 
 function ooResultCountry(r) {
@@ -345,20 +389,38 @@ function ooLatencyColor(ms, timeout) {
     return ms < timeout / 3 ? 'text-emerald-600' : (ms < timeout * 2 / 3 ? 'text-amber-600' : 'text-slate-500');
 }
 
+// 延迟升序，同延迟丢包少的在前
+function ooCompare(a, b) {
+    return a.latency - b.latency || a.loss - b.loss;
+}
+
+function ooLossColor(loss) {
+    return loss === 0 ? 'text-emerald-600' : (loss <= 40 ? 'text-amber-600' : 'text-red-500');
+}
+
+// 运营商对本轮所有 IP 相同，只在结果标题旁显示一次；
+// 每行展示机房、延迟（最低值）、丢包与各次采样（橙色 = 重传毛刺，× = 超时）
 function ooRerender() {
     const tbody = document.getElementById('oo-results');
-    const sorted = [...ooState.results].sort((a, b) => a.latency - b.latency);
-    document.getElementById('oo-placeholder')?.remove();
-    tbody.innerHTML = sorted.map((r, i) => `<tr class="border-b border-slate-50">
+    const timeout = +document.getElementById('oo-timeout').value || 500;
+    const sorted = [...ooState.results].sort(ooCompare);
+    tbody.innerHTML = sorted.map((r, i) => {
+        const country = ooResultCountry(r);
+        const samples = r.samples.map(v => v === null
+            ? '<span class="text-red-400">×</span>'
+            : (v - r.latency > OO_SPIKE_MS ? `<span class="text-amber-500">${v}</span>` : v)
+        ).join('<span class="text-slate-300"> / </span>');
+        return `<tr class="border-b border-slate-50">
         <td class="py-2 pr-4 text-xs text-slate-400">${i + 1}</td>
-        <td class="py-2 pr-4 font-mono text-xs font-medium text-slate-800">${esc(r.address)}</td>
-        <td class="py-2 pr-4 text-xs text-slate-600">${esc(r.ipType)}</td>
-        <td class="py-2 pr-4 text-xs"><span class="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-600 ring-1 ring-inset ring-indigo-100">${esc(r.isp)}</span></td>
-        <td class="py-2 pr-4 text-xs text-slate-600">${esc(ooResultCountry(r))}</td>
-        <td class="py-2 pr-4 text-xs font-mono text-slate-600">${esc(r.colo)}</td>
-        <td class="py-2 font-mono text-xs font-semibold ${ooLatencyColor(r.latency, +document.getElementById('oo-timeout').value || 500)}">${r.latency} ms</td>
-    </tr>`).join('') || `<tr><td colspan="7" class="py-10 text-center text-sm text-slate-400">暂无达标 IP（延迟 ≤ 超时阈值）</td></tr>`;
+        <td class="py-2 pr-4 font-mono text-xs font-medium text-slate-800 break-all">${esc(r.address)}</td>
+        <td class="py-2 pr-4 text-xs text-slate-600"><span class="font-mono">${esc(r.colo)}</span>${country !== '未知' ? ` <span class="text-slate-400">· ${esc(country)}</span>` : ''}</td>
+        <td class="py-2 pr-4 font-mono text-xs font-semibold ${ooLatencyColor(r.latency, timeout)}">${r.latency} ms</td>
+        <td class="py-2 pr-4 font-mono text-xs ${ooLossColor(r.loss)}">${r.loss}%</td>
+        <td class="py-2 font-mono text-[11px] text-slate-400">${samples}</td>
+    </tr>`;
+    }).join('') || `<tr><td colspan="6" class="py-10 text-center text-sm text-slate-400">${ooState.running ? '测速中…' : '暂无可用 IP'}</td></tr>`;
     document.getElementById('oo-result-count').textContent = `${sorted.length} 个可用`;
+    document.getElementById('oo-isp').textContent = ooState.isp ? `测速线路：${ooState.isp}` : '';
 }
 
 function ooSetProgress(done, total, statusText) {
@@ -414,56 +476,63 @@ async function ooStart() {
         return;
     }
 
+    // 先进入运行态（隐藏开始按钮），避免解析探测域名期间重复点击启动两轮
+    ooState.running = true;
+    ooState.stopped = false;
+    ooState.results = [];
+    ooState.cursor = 0;
+    const toggleButtons = running => {
+        document.getElementById('oo-start').classList.toggle('hidden', running);
+        document.getElementById('oo-stop').classList.toggle('hidden', !running);
+    };
+    toggleButtons(true);
+    document.getElementById('oo-footer').classList.add('hidden');
+    document.getElementById('oo-footer').classList.remove('flex');
+    ooRerender();
+
     // 解析优选探测域名；locations 若尚未就绪则并行补拉（失败不影响测速）
     if (!ooState.bestHost) {
         ooSetProgress(0, 0, '解析探测域名…');
-        document.getElementById('oo-progress-wrap').classList.remove('hidden');
-        if (!await ooResolveBestHost()) {
+        if (!await ooEnsureHost()) {
+            ooState.running = false;
+            toggleButtons(false);
+            if (ooState.stopped) { ooSetProgress(0, 0, '已停止'); return; }
+            ooSetProgress(0, 0, '探测域名不可达');
             alert('探测域名不可达：当前网络可能不在 CN 直连环境或无法访问 HiDNS 优选域名，无法进行在线优选。');
             return;
         }
     }
     if (!ooState.locationsByIata.size) ooLoadLocations().catch(() => {});
 
-    ooState.running = true;
-    ooState.stopped = false;
-    ooState.results = [];
-    ooState.cursor = 0;
-    document.getElementById('oo-editor').value = candidates.join('\n');
-    ooUpdateEditorCount();
-    document.getElementById('oo-start').classList.add('hidden');
-    document.getElementById('oo-stop').classList.remove('hidden');
-    document.getElementById('oo-footer').classList.add('hidden');
-    document.getElementById('oo-footer').classList.remove('flex');
-    document.getElementById('oo-results').innerHTML = '';
-    ooSetProgress(0, candidates.length, `正在优选 ${candidates.length} 个地址`);
-
+    // 待选列表保留原始 CIDR / 区间，每轮重新随机取样；本轮实际展开的数量显示在进度里
+    const stats = { ok: 0, slow: 0, fail: 0 };
+    const summary = () => `候选 ${candidates.length} · 可用 ${stats.ok} · 超标 ${stats.slow} · 不可达 ${stats.fail}`;
     let done = 0, lastPaint = 0;
     const paint = force => {
         const now = performance.now();
-        if (force || now - lastPaint > 300) { ooRerender(); lastPaint = now; ooSetProgress(done, candidates.length, ooState.stopped ? '已停止' : '优选中…'); }
+        if (force || now - lastPaint > 300) { ooRerender(); lastPaint = now; ooSetProgress(done, candidates.length, summary()); }
     };
+    paint(true);
 
     const worker = async () => {
         while (ooState.cursor < candidates.length && !ooState.stopped) {
             const address = candidates[ooState.cursor++];
-            try {
-                const result = await ooTestAddress(address, timeout);
-                if (result && !ooState.stopped) ooState.results.push(result);
-            } catch (e) { /* 不可达地址静默剔除 */ }
+            const { status, result } = await ooTestAddress(address, timeout);
+            if (ooState.stopped) break;
+            stats[status]++;
+            if (result) ooState.results.push(result);
             done++;
             paint(false);
         }
     };
     await Promise.all(Array.from({ length: Math.min(concurrency, candidates.length) }, worker));
 
-    paint(true);
     ooState.running = false;
+    paint(true);
     for (const c of ooState.controllers) c.abort();
     ooState.controllers.clear();
-    document.getElementById('oo-stop').classList.add('hidden');
-    document.getElementById('oo-start').classList.remove('hidden');
-    ooSetProgress(done, candidates.length, ooState.stopped ? `已停止，保留 ${ooState.results.length} 个结果` : `优选完成，${ooState.results.length} 个可用`);
+    toggleButtons(false);
+    ooSetProgress(done, candidates.length, (ooState.stopped ? '已停止 · ' : '优选完成 · ') + summary());
 
     if (ooState.results.length) {
         document.getElementById('oo-footer').classList.remove('hidden');
@@ -478,42 +547,55 @@ function ooStop() {
 }
 
 // ---------- ③ 达标入库 ----------
-function ooUpdateQualified() {
+// 达标 = 延迟 ≤ 入库阈值 且 丢包 ≤ 上限；IP 池只存 IP（不含端口），同一 IP 多端口只保留最优的一条
+function ooQualified() {
     const threshold = +document.getElementById('oo-threshold').value || 300;
+    const maxLoss = +document.getElementById('oo-max-loss').value;
     const limit = +document.getElementById('oo-save-limit').value || 20;
-    const n = ooState.results.filter(r => r.latency <= threshold).length;
-    document.getElementById('oo-qualified').textContent = `（达标 ${n} 个，将入库 ${Math.min(n, limit)} 个）`;
+    const best = new Map();
+    for (const r of ooState.results) {
+        if (r.latency > threshold || r.loss > maxLoss) continue;
+        const prev = best.get(r.ip);
+        if (!prev || ooCompare(r, prev) < 0) best.set(r.ip, r);
+    }
+    const all = [...best.values()].sort(ooCompare);
+    return { all, picked: all.slice(0, limit) };
+}
+
+// 调整入库条件 → 刷新计数，并允许再次入库
+function ooUpdateQualified() {
+    const { all, picked } = ooQualified();
+    document.getElementById('oo-qualified').textContent = `（达标 ${all.length} 个，将入库 ${picked.length} 个）`;
+    const btn = document.getElementById('oo-save');
+    btn.disabled = false;
+    btn.textContent = '达标入库';
 }
 
 async function ooSave() {
-    const threshold = +document.getElementById('oo-threshold').value || 300;
-    const limit = +document.getElementById('oo-save-limit').value || 20;
-    const entries = ooState.results
-        .filter(r => r.latency <= threshold)
-        .sort((a, b) => a.latency - b.latency)
-        .slice(0, limit)
-        .map(r => {
-            // 备注 = 运营商 · 机房国家 · 数据中心（跳过缺失项），例：电信 · HK · HKG
-            const country = ooResultCountry(r);
-            const parts = [r.isp, country !== '未知' ? country : null, r.colo !== '—' ? r.colo : null].filter(Boolean);
-            return {
-                ip: r.ip,
-                latency_ms: r.latency,
-                remarks: parts.length ? parts.join(' · ') : null,
-            };
-        });
-    if (!entries.length) { alert('没有达标的 IP'); return; }
+    const entries = ooQualified().picked.map(r => {
+        // 备注 = 运营商 · 机房国家 · 数据中心（跳过缺失项），例：电信 · HK · HKG
+        const country = ooResultCountry(r);
+        const parts = [ooState.isp, country !== '未知' ? country : null, r.colo !== '—' ? r.colo : null].filter(Boolean);
+        return {
+            ip: r.ip,
+            latency_ms: r.latency,
+            loss_rate: r.loss,
+            remarks: parts.length ? parts.join(' · ') : null,
+        };
+    });
+    if (!entries.length) { toast('没有达标的 IP，可放宽延迟或丢包条件', 'error'); return; }
 
     const btn = document.getElementById('oo-save');
     btn.disabled = true; btn.textContent = '入库中…';
     try {
         const data = await ipsApi.latencyBatch(entries);
-        // 异步刷新下方表格数据（不整页刷新，保留弹窗与页面状态）
+        btn.textContent = '✓ 已入库';
+        toast(`已入库 ${data.saved} 个 IP（含延迟与地区备注），可直接到「优选生成」使用`);
+        // 刷新弹窗下方的 IP 池表格（动态导入避免与 preferredIps.js 循环依赖）
         const { refreshTable } = await import('./preferredIps.js');
-        if (typeof refreshTable === 'function') await refreshTable();
-        alert(`已入库 ${data.saved} 个 IP（含延迟与地区备注），可直接到「优选生成」使用`);
+        await refreshTable();
     } catch (e) {
-        alert('入库失败：' + e.message);
+        toast('入库失败：' + e.message, 'error');
         btn.disabled = false; btn.textContent = '达标入库';
     }
 }
@@ -529,7 +611,7 @@ export function openOnlineOptimize() {
     modal.classList.remove('hidden');
     modal.classList.add('flex');
     document.body.style.overflow = 'hidden';
-    if (!ooState.bestHost) ooResolveBestHost().catch(() => {});
+    ooEnsureHost().catch(() => {});
     ooLoadLocations().catch(() => {});
 }
 
@@ -597,7 +679,7 @@ function ooModalHtml() {
                           class="w-full rounded-lg border-slate-200 font-mono text-xs leading-5 shadow-sm focus:border-indigo-400 focus:ring-indigo-100"></textarea>
                 <div class="mt-1 flex items-center justify-between">
                     <span id="oo-line-count" class="text-xs text-slate-400">0 行</span>
-                    <span class="text-xs text-slate-400">仅显示延迟 ≤ 超时阈值的可用 IP</span>
+                    <span class="text-xs text-slate-400">每个 IP 建连后采样 ${OO_SAMPLES} 次：延迟取最低值，超时或重传毛刺计丢包；CIDR / 区间每轮重新随机取样</span>
                 </div>
             </div>
             <div id="oo-progress-wrap" class="hidden px-6 pt-4">
@@ -612,22 +694,24 @@ function ooModalHtml() {
             <div class="min-h-0 flex-1 overflow-y-auto px-6 py-4">
                 <div class="mb-2 flex items-center justify-between">
                     <h3 class="text-sm font-semibold text-slate-900">优选结果</h3>
-                    <span id="oo-result-count" class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500">0 个可用</span>
+                    <div class="flex items-center gap-2">
+                        <span id="oo-isp" class="text-xs text-slate-400"></span>
+                        <span id="oo-result-count" class="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500">0 个可用</span>
+                    </div>
                 </div>
                 <table class="w-full text-sm">
                     <thead class="sticky top-0 bg-white">
                         <tr class="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400">
                             <th class="py-2.5 pr-4 font-medium">#</th>
                             <th class="py-2.5 pr-4 font-medium">IP:端口</th>
-                            <th class="py-2.5 pr-4 font-medium">类型</th>
-                            <th class="py-2.5 pr-4 font-medium">运营商</th>
-                            <th class="py-2.5 pr-4 font-medium">国家</th>
                             <th class="py-2.5 pr-4 font-medium">数据中心</th>
-                            <th class="py-2.5 font-medium">延迟</th>
+                            <th class="py-2.5 pr-4 font-medium">延迟</th>
+                            <th class="py-2.5 pr-4 font-medium">丢包</th>
+                            <th class="py-2.5 font-medium">采样 ms</th>
                         </tr>
                     </thead>
                     <tbody id="oo-results">
-                        <tr id="oo-placeholder"><td colspan="7" class="py-10 text-center text-sm text-slate-400">先导入候选，再点击开始优选</td></tr>
+                        <tr><td colspan="6" class="py-10 text-center text-sm text-slate-400">先导入候选，再点击开始优选</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -635,7 +719,9 @@ function ooModalHtml() {
                 <div class="flex flex-wrap items-center gap-3 text-xs text-slate-500">
                     <span>入库条件：延迟 ≤</span>
                     <input type="number" id="oo-threshold" value="500" min="20" step="20" class="w-20 rounded-lg border-slate-200 py-1 text-sm shadow-sm">
-                    <span>ms，取前</span>
+                    <span>ms，丢包 ≤</span>
+                    <input type="number" id="oo-max-loss" value="40" min="0" max="100" step="20" class="w-16 rounded-lg border-slate-200 py-1 text-sm shadow-sm">
+                    <span>%，取前</span>
                     <input type="number" id="oo-save-limit" value="20" min="1" max="200" class="w-16 rounded-lg border-slate-200 py-1 text-sm shadow-sm">
                     <span>个</span>
                     <span id="oo-qualified" class="font-medium text-slate-700"></span>
@@ -657,6 +743,8 @@ function bindOoEvents() {
     document.getElementById('oo-start').addEventListener('click', ooStart);
     document.getElementById('oo-stop').addEventListener('click', ooStop);
     document.getElementById('oo-editor').addEventListener('input', ooUpdateEditorCount);
+    document.getElementById('oo-save').addEventListener('click', ooSave);
     document.getElementById('oo-threshold').addEventListener('input', ooUpdateQualified);
+    document.getElementById('oo-max-loss').addEventListener('input', ooUpdateQualified);
     document.getElementById('oo-save-limit').addEventListener('input', ooUpdateQualified);
 }

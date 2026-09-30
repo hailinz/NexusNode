@@ -160,10 +160,10 @@
 
 ### POST /api/v1/preferred-ips/latency-batch
 
-浏览器优选测速结果入库（≤200 条）。仅更新延迟与启用状态；备注仅在原值为空时写入。
+浏览器优选测速结果入库（≤200 条）。仅更新延迟、丢包率（`loss_rate` 可选，不传保留原值）与启用状态；备注仅在原值为空时写入；IPv6 的方括号会被去掉。
 
 ```json
-{ "entries": [{ "ip": "1.2.3.4", "latency_ms": 52, "remarks": "电信 · HK · HKG" }] }
+{ "entries": [{ "ip": "1.2.3.4", "latency_ms": 52, "loss_rate": 20, "remarks": "电信 · HK · HKG" }] }
 ```
 
 ### POST /api/v1/preferred-ips/metrics-batch
