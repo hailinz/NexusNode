@@ -125,6 +125,24 @@ class ProxyUriTest extends TestCase
         return rtrim(strtr(base64_encode($value), '+/', '-_'), '=');
     }
 
+    public function test_hysteria2解析与round_trip(): void
+    {
+        $uri = 'hysteria2://3sqfdasqgxmeehm9@x.osb.timht.com:2083?sni=x.osb.timht.com&obfs=salamander&obfs-password=3metdltmiknfrptr#hy-osb-01-iqlhbbzvq7';
+
+        $data = $this->assertRoundTrip($uri);
+
+        $this->assertSame('hysteria2', $data['protocol']);
+        $this->assertSame('3sqfdasqgxmeehm9', $data['uuid']);
+        $this->assertSame('x.osb.timht.com', $data['address']);
+        $this->assertSame(2083, $data['port']);
+        $this->assertSame('x.osb.timht.com', $data['sni']);
+        $this->assertSame('quic', $data['network']);
+        $this->assertSame('tls', $data['security']);
+        $this->assertSame('salamander', $data['extras']['obfs']);
+        $this->assertSame('3metdltmiknfrptr', $data['extras']['obfs-password']);
+        $this->assertSame('hy-osb-01-iqlhbbzvq7', $data['name']);
+    }
+
     public function test_无sni的普通节点不标记cf(): void
     {
         $data = $this->parser->parse('vless://uuid-1@example.com:443?type=tcp#Plain');

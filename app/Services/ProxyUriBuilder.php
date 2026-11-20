@@ -21,6 +21,7 @@ class ProxyUriBuilder
             'vmess' => self::buildVmess($n),
             'ss' => self::buildSs($n),
             'trojan' => self::buildGeneric('trojan', $n, includeEncryption: false),
+            'hysteria2' => self::buildHysteria2($n),
             default => self::buildGeneric('vless', $n, includeEncryption: true),
         };
     }
@@ -97,6 +98,35 @@ class ProxyUriBuilder
     {
         $plain = sprintf('%s:%s@%s:%s', $n['encryption'] ?? 'aes-256-gcm', $n['uuid'] ?? '', $n['address'], $n['port']);
         $uri = 'ss://' . base64_encode($plain);
+
+        $name = $n['name'] ?? '';
+        if ($name !== '') {
+            $uri .= '#' . rawurlencode($name);
+        }
+
+        return $uri;
+    }
+
+    /**
+     * hysteria2://password@host:port?sni=...&obfs=...&obfs-password=...#name
+     *
+     * network=quic / security=tls 是协议固有属性，URI 中不输出。
+     */
+    private static function buildHysteria2(array $n): string
+    {
+        $params = [];
+
+        self::pushParam($params, 'sni', $n['sni'] ?? null);
+
+        // 还原未知参数（obfs、obfs-password 等）
+        foreach (($n['extras'] ?? []) as $key => $value) {
+            self::pushParam($params, (string) $key, (string) $value);
+        }
+
+        $uri = sprintf('hysteria2://%s@%s:%s', rawurlencode($n['uuid'] ?? ''), $n['address'], $n['port']);
+        if ($params !== []) {
+            $uri .= '?' . implode('&', $params);
+        }
 
         $name = $n['name'] ?? '';
         if ($name !== '') {

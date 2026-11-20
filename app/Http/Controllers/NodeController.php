@@ -251,7 +251,7 @@ class NodeController extends Controller
     {
         return $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'protocol' => ['required', Rule::in(['vless', 'vmess', 'trojan', 'ss'])],
+            'protocol' => ['required', Rule::in(['vless', 'vmess', 'trojan', 'ss', 'hysteria2'])],
             'uuid' => ['nullable', 'string', 'max:255'],
             'address' => ['required', 'string', 'max:255'],
             'port' => ['required', 'integer', 'min:1', 'max:65535'],
@@ -259,7 +259,7 @@ class NodeController extends Controller
             'sni' => ['nullable', 'string', 'max:255'],
             'host' => ['nullable', 'string', 'max:255'],
             'path' => ['nullable', 'string', 'max:500'],
-            'network' => ['nullable', Rule::in(['tcp', 'ws', 'grpc', 'http'])],
+            'network' => ['nullable', Rule::in(['tcp', 'ws', 'grpc', 'http', 'quic'])],
             'flow' => ['nullable', 'string', 'max:100'],
             'fingerprint' => ['nullable', 'string', 'max:50'],
             'encryption' => ['nullable', 'string', 'max:255'],

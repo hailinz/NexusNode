@@ -37,6 +37,7 @@ class ProxyUriParser
             'vless', 'trojan' => $this->parseGeneric($uri, $scheme),
             'vmess' => $this->parseVmess($rest),
             'ss' => $this->parseShadowsocks($rest),
+            'hysteria2' => $this->parseHysteria2($uri),
             default => throw new RuntimeException("不支持的协议: {$scheme}"),
         };
     }
@@ -90,6 +91,52 @@ class ProxyUriParser
             'encryption' => $known['encryption'],
             'alpn' => $known['alpn'],
             'extras' => $extras ?: null,
+        ];
+    }
+
+    /**
+     * 解析 hysteria2://password@host:port?sni=...&obfs=...&obfs-password=...#name
+     *
+     * hysteria2 基于 QUIC + TLS，network 恒为 quic、security 恒为 tls（URI 中不体现）。
+     * obfs / obfs-password 等专有参数存入 extras，保证 round-trip 不丢失。
+     */
+    private function parseHysteria2(string $uri): array
+    {
+        $parts = parse_url($uri);
+        if ($parts === false || empty($parts['host']) || !isset($parts['port'])) {
+            throw new RuntimeException('链接缺少主机或端口');
+        }
+
+        $password = rawurldecode($parts['user'] ?? '');
+        if ($password === '') {
+            throw new RuntimeException('链接缺少用户凭据（密码）');
+        }
+
+        $params = $this->parseQuery($parts['query'] ?? '');
+
+        // sni 是独立字段，其余参数（obfs、obfs-password 等）进 extras
+        $sni = $params['sni'] ?? null;
+        unset($params['sni']);
+        $extras = $params ?: null;
+
+        return [
+            'name' => isset($parts['fragment']) && $parts['fragment'] !== ''
+                ? rawurldecode($parts['fragment'])
+                : $parts['host'] . ':' . $parts['port'],
+            'protocol' => 'hysteria2',
+            'uuid' => $password,
+            'address' => $parts['host'],
+            'port' => $parts['port'],
+            'security' => 'tls',
+            'sni' => $sni,
+            'host' => null,
+            'path' => null,
+            'network' => 'quic',
+            'flow' => null,
+            'fingerprint' => null,
+            'encryption' => null,
+            'alpn' => null,
+            'extras' => $extras,
         ];
     }
 

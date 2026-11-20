@@ -439,7 +439,7 @@ function openNodeForm(root, node, onSaved) {
             <div><label class="mb-1 block text-sm font-medium text-slate-700">名称 *</label>
                 <input name="name" required value="${esc(n.name || '')}" class="w-full rounded-lg border-slate-200 text-sm shadow-sm"></div>
             <div><label class="mb-1 block text-sm font-medium text-slate-700">协议</label>
-                <select name="protocol" class="w-full rounded-lg border-slate-200 text-sm shadow-sm">${['vless', 'vmess', 'trojan', 'ss'].map(p => `<option ${((n.protocol || 'vless') === p) ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
+                <select name="protocol" class="w-full rounded-lg border-slate-200 text-sm shadow-sm">${['vless', 'vmess', 'trojan', 'ss', 'hysteria2'].map(p => `<option ${((n.protocol || 'vless') === p) ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
             <div><label class="mb-1 block text-sm font-medium text-slate-700">UUID / 密码</label>
                 <input name="uuid" value="${esc(n.uuid || '')}" class="w-full rounded-lg border-slate-200 font-mono text-sm shadow-sm"></div>
             <div class="sm:col-span-2"><label class="mb-1 block text-sm font-medium text-slate-700">地址 *</label>
@@ -447,7 +447,7 @@ function openNodeForm(root, node, onSaved) {
             <div><label class="mb-1 block text-sm font-medium text-slate-700">端口 *</label>
                 <input name="port" type="number" min="1" max="65535" required value="${n.port ?? 443}" class="w-full rounded-lg border-slate-200 text-sm shadow-sm"></div>
             <div><label class="mb-1 block text-sm font-medium text-slate-700">传输层</label>
-                <select name="network" class="w-full rounded-lg border-slate-200 text-sm shadow-sm">${['tcp', 'ws', 'grpc', 'http'].map(x => `<option ${(n.network || 'tcp') === x ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
+                <select name="network" class="w-full rounded-lg border-slate-200 text-sm shadow-sm">${['tcp', 'ws', 'grpc', 'http', 'quic'].map(x => `<option ${(n.network || 'tcp') === x ? 'selected' : ''}>${x}</option>`).join('')}</select></div>
             <div><label class="mb-1 block text-sm font-medium text-slate-700">TLS 安全层</label>
                 <select name="security" class="w-full rounded-lg border-slate-200 text-sm shadow-sm">${[['', '无'], ['tls', 'tls'], ['reality', 'reality']].map(([v, l]) => `<option value="${v}" ${(n.security || '') === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
             <div><label class="mb-1 block text-sm font-medium text-slate-700">SNI</label>
